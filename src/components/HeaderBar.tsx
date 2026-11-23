@@ -1,7 +1,6 @@
 import React from 'react';
 import {
   Cloud,
-  Link2,
   LogOut,
   Monitor,
   Plus,
@@ -20,7 +19,6 @@ interface HeaderBarProps {
   onOpenAddSection: () => void;
   onOpenProjector: () => void;
   onOpenSpotlight: () => void;
-  onCopyEmbedLink: () => void;
   onSignOut: () => void;
   onSwitchTab: (tab: ActiveTab) => void;
 }
@@ -36,7 +34,6 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
   onOpenAddSection,
   onOpenProjector,
   onOpenSpotlight,
-  onCopyEmbedLink,
   onSignOut,
   onSwitchTab,
 }) => {
@@ -128,14 +125,6 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
             >
               <Sparkles className="w-4 h-4" />
               Spotlight
-            </button>
-            <button
-              onClick={onCopyEmbedLink}
-              className="px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-bold text-xs sm:text-sm rounded-xl flex items-center gap-1.5 transition-all whitespace-nowrap shrink-0 cursor-pointer"
-              title="Copy shareable link for Lumio, Google Slides, or Canvas"
-            >
-              <Link2 className="w-4 h-4" />
-              Lumio Link
             </button>
           </div>
         </div>

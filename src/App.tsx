@@ -571,12 +571,6 @@ export default function App() {
         onOpenAddSection={() => setAddSectionOpen(true)}
         onOpenProjector={() => setProjectorOpen(true)}
         onOpenSpotlight={() => setSpotlightOpen(true)}
-        onCopyEmbedLink={() =>
-          void copyText(
-            window.location.href,
-            'Link copied! Ready to share or embed in Lumio, Google Slides, or Canvas.'
-          )
-        }
         onSignOut={() => void signOutTeacher()}
         onSwitchTab={handleTabChange}
       />
