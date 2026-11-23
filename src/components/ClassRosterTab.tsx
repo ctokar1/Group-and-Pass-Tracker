@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import { CheckSquare, FileText, History, Trash2, UserPlus, XSquare } from 'lucide-react';
-import { LIMITS, type StudentDoc } from '../types/classroom';
+import { LIMITS, MAX_QUARTER_PASSES, type StudentDoc } from '../types/classroom';
 
 interface ClassRosterTabProps {
   students: StudentDoc[];
+  maxPasses?: number;
   onAddStudent: (name: string) => Promise<void>;
   onBulkImport: (names: string[]) => Promise<void>;
   onToggleAttendance: (studentId: string, present: boolean) => Promise<void>;
@@ -14,6 +15,7 @@ interface ClassRosterTabProps {
 
 export const ClassRosterTab: React.FC<ClassRosterTabProps> = ({
   students,
+  maxPasses = MAX_QUARTER_PASSES,
   onAddStudent,
   onBulkImport,
   onToggleAttendance,
@@ -168,7 +170,7 @@ export const ClassRosterTab: React.FC<ClassRosterTabProps> = ({
 
                 <div className="flex items-center gap-2.5 shrink-0">
                   <span className="text-xs font-mono-tabular text-slate-400">
-                    {st.passesUsed}/{LIMITS.MAX_PASSES} passes
+                    {Math.max(0, maxPasses - st.passesUsed)}/{maxPasses} passes
                   </span>
                   <button
                     onClick={() => onOpenStudentHistory(st)}

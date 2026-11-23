@@ -11,37 +11,45 @@ import {
 import {
   addStudent,
   adjustStudentPassCount,
+  applyDefaultGroupingToAllSections,
   bulkAddStudents,
+  clearPassLogs,
   createSection,
+  deletePassLogEntry,
   deleteSection,
   deleteStudent,
   ensureWorkspaceAndSeed,
   importBackupToFirestore,
   issueStudentPass,
   markAllAttendance,
+  markStudentAbsentAndRemoveFromGroups,
   renameSection,
   resetQuarterPasses,
   returnStudentPass,
+  sanitizeWorkspaceSettings,
   setActiveSection,
   subscribePassLogs,
   subscribeSections,
   subscribeStudents,
   subscribeWorkspace,
   toggleStudentAttendance,
+  updatePassLogEntry,
   updateSectionGroups,
   updateSectionPassQueue,
   updateSectionSettings,
+  updateWorkspaceSettings,
   type LegacyOrCloudBackupSection,
 } from './lib/classroomService';
 import { generateColorGroups } from './lib/grouping';
 import {
-  LIMITS,
-  MAX_QUARTER_PASSES,
   WORKSPACE_ID,
   type ActiveTab,
+  type AppSettings,
   type ClassSectionDoc,
+  type PassAction,
   type PassLogDoc,
   type StudentDoc,
+  type ThemeId,
   type ToastMessage,
   type WorkspaceDoc,
 } from './types/classroom';
@@ -67,6 +75,11 @@ import {
   StudentHistoryModal,
   type StudentHistoryTarget,
 } from './components/StudentHistoryModal';
+import { SettingsModal } from './components/SettingsModal';
+import {
+  ClearHistoryModal,
+  EditPassLogModal,
+} from './components/PassHistoryModals';
 
 interface DocumentPictureInPictureApi {
   window: Window | null;
@@ -102,8 +115,11 @@ export default function App() {
   const [projectorOpen, setProjectorOpen] = useState(false);
   const [spotlightTrigger, setSpotlightTrigger] = useState(0);
   const [projectorRulesOpen, setProjectorRulesOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [addSectionOpen, setAddSectionOpen] = useState(false);
   const [resetModalOpen, setResetModalOpen] = useState(false);
+  const [clearHistoryOpen, setClearHistoryOpen] = useState(false);
+  const [editingLog, setEditingLog] = useState<PassLogDoc | null>(null);
   const [passBoardModalOpen, setPassBoardModalOpen] = useState(false);
   const [pipContainer, setPipContainer] = useState<HTMLElement | null>(null);
   const pipWindowRef = useRef<Window | null>(null);
@@ -113,6 +129,24 @@ export default function App() {
   } | null>(null);
   const [spotlightWinner, setSpotlightWinner] = useState<SpotlightWinnerInfo | null>(null);
   const [historyTarget, setHistoryTarget] = useState<StudentHistoryTarget | null>(null);
+
+  const [previewTheme, setPreviewTheme] = useState<ThemeId | null>(null);
+  const [cachedTheme] = useState<ThemeId>(() => {
+    if (typeof window === 'undefined') return 'gold';
+    const raw = localStorage.getItem('tiger_theme_id');
+    if (
+      raw === 'gold' ||
+      raw === 'sapphire' ||
+      raw === 'emerald' ||
+      raw === 'violet' ||
+      raw === 'crimson' ||
+      raw === 'tangerine'
+    ) {
+      return raw;
+    }
+    return 'gold';
+  });
+  const hasInitializedTabRef = useRef(false);
 
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
@@ -229,6 +263,39 @@ export default function App() {
     return () => unsub();
   }, [workspaceReady, activeSection?.id]);
 
+  const appSettings = useMemo(
+    () => sanitizeWorkspaceSettings(workspace?.settings),
+    [workspace?.settings]
+  );
+
+  const effectiveTheme: ThemeId =
+    previewTheme ?? (workspaceReady ? appSettings.theme : cachedTheme);
+
+  // Keep DOM and PiP window theme attributes synchronized
+  useEffect(() => {
+    document.documentElement.dataset.theme = effectiveTheme;
+    if (workspaceReady && !previewTheme) {
+      try {
+        localStorage.setItem('tiger_theme_id', effectiveTheme);
+      } catch {
+        // ignore storage errors
+      }
+    }
+    if (pipWindowRef.current && !pipWindowRef.current.closed) {
+      pipWindowRef.current.document.documentElement.dataset.theme = effectiveTheme;
+    }
+  }, [effectiveTheme, workspaceReady, previewTheme]);
+
+  // Apply configured default starting tab on fresh session
+  useEffect(() => {
+    if (!workspaceReady || hasInitializedTabRef.current) return;
+    hasInitializedTabRef.current = true;
+    const saved = sessionStorage.getItem('tiger_active_tab');
+    if (!saved && appSettings.defaultTab) {
+      setActiveTab(appSettings.defaultTab);
+    }
+  }, [workspaceReady, appSettings.defaultTab]);
+
   const withSync = async (fn: () => Promise<void>) => {
     setSyncing(true);
     try {
@@ -293,7 +360,11 @@ export default function App() {
   const handleCreateSection = async (name: string) => {
     const maxOrder = sections.reduce((max, s) => Math.max(max, s.order), -1);
     await withSync(async () => {
-      await createSection(name, maxOrder + 1, teacherEmail);
+      await createSection(name, maxOrder + 1, teacherEmail, {
+        quickSize: appSettings.defaultQuickSize,
+        quickCount: appSettings.defaultQuickCount,
+        forceExactCount: appSettings.defaultForceExactCount,
+      });
       showToast(`Created section: ${name}`);
     });
   };
@@ -458,6 +529,7 @@ export default function App() {
 
   const handleIssuePass = async (student: StudentDoc) => {
     if (!activeSection) return;
+    const maxPasses = appSettings.maxQuarterPasses;
     const activeOut = students.find((s) => s.outTimestamp > 0);
     if (activeOut) {
       showToast(
@@ -466,11 +538,8 @@ export default function App() {
       );
       return;
     }
-    if (student.passesUsed >= LIMITS.MAX_PASSES) {
-      showToast(
-        `${student.name} has reached the pass limit (${MAX_QUARTER_PASSES}/${MAX_QUARTER_PASSES})!`,
-        'error'
-      );
+    if (student.passesUsed >= maxPasses) {
+      showToast(`${student.name} has 0/${maxPasses} passes remaining!`, 'error');
       return;
     }
     await withSync(async () => {
@@ -479,11 +548,11 @@ export default function App() {
         activeSection.name,
         student,
         teacherEmail,
-        activeSection.passQueue || []
+        activeSection.passQueue || [],
+        maxPasses
       );
-      showToast(
-        `Issued pass to ${student.name} (${student.passesUsed + 1}/${MAX_QUARTER_PASSES})`
-      );
+      const remainingAfter = Math.max(0, maxPasses - (student.passesUsed + 1));
+      showToast(`Issued pass to ${student.name} (${remainingAfter}/${maxPasses} left)`);
     });
   };
 
@@ -497,14 +566,15 @@ export default function App() {
 
   const handleAddToQueue = async (studentId: string) => {
     if (!activeSection) return;
+    const maxPasses = appSettings.maxQuarterPasses;
     const st = students.find((s) => s.id === studentId);
     if (!st) return;
     if (st.outTimestamp > 0) {
       showToast(`${st.name} is already out!`, 'error');
       return;
     }
-    if (st.passesUsed >= LIMITS.MAX_PASSES) {
-      showToast(`${st.name} has reached the ${MAX_QUARTER_PASSES}/${MAX_QUARTER_PASSES} pass limit!`, 'error');
+    if (st.passesUsed >= maxPasses) {
+      showToast(`${st.name} has 0/${maxPasses} passes remaining!`, 'error');
       return;
     }
     const existing = activeSection.passQueue || [];
@@ -577,6 +647,7 @@ export default function App() {
         pipWindowRef.current = pipWin;
         pipWin.document.title = 'Restroom Line — Tiger GroupCraft';
         pipWin.document.documentElement.className = document.documentElement.className;
+        pipWin.document.documentElement.dataset.theme = effectiveTheme;
         pipWin.document.body.className = 'bg-slate-950 text-slate-100 antialiased m-0 p-0';
 
         // Copy all stylesheets so Tailwind v4 styles work inside the pop-out window
@@ -604,10 +675,18 @@ export default function App() {
 
   const handleAdjustPassCount = async (student: StudentDoc, delta: number) => {
     if (!activeSection) return;
+    const maxPasses = appSettings.maxQuarterPasses;
     const next = student.passesUsed + delta;
-    if (next < 0 || next > LIMITS.MAX_PASSES) return;
+    if (next < 0 || next > maxPasses) return;
     await withSync(async () => {
-      await adjustStudentPassCount(activeSection.id, activeSection.name, student, delta, teacherEmail);
+      await adjustStudentPassCount(
+        activeSection.id,
+        activeSection.name,
+        student,
+        delta,
+        teacherEmail,
+        maxPasses
+      );
     });
   };
 
@@ -616,6 +695,89 @@ export default function App() {
     await withSync(async () => {
       await resetQuarterPasses(activeSection.id, activeSection.name, students, teacherEmail);
       showToast(`Quarter passes reset for ${activeSection.name}!`);
+    });
+  };
+
+  const handleSaveSettings = async (nextSettings: AppSettings) => {
+    await withSync(async () => {
+      await updateWorkspaceSettings(nextSettings, teacherEmail);
+      setPreviewTheme(null);
+      showToast('Settings saved & synced!');
+    });
+  };
+
+  const handleApplyGroupingDefaultsToAll = async (defaults: {
+    quickSize: number;
+    quickCount: number;
+    forceExactCount: boolean;
+  }) => {
+    await withSync(async () => {
+      await applyDefaultGroupingToAllSections(sections, defaults, teacherEmail);
+      showToast(`Applied grouping defaults to all ${sections.length} periods!`);
+    });
+  };
+
+  const handleRemoveAbsentFromProjector = async (student: StudentDoc) => {
+    if (!activeSection) return;
+    await withSync(async () => {
+      await markStudentAbsentAndRemoveFromGroups(
+        activeSection.id,
+        student.id,
+        activeSection.groups,
+        teacherEmail
+      );
+      if (spotlightWinner?.studentId === student.id) {
+        setSpotlightWinner(null);
+      }
+      showToast(`${student.name} marked absent & removed from groups`);
+    });
+  };
+
+  const handleRestorePresentStudent = async (student: StudentDoc) => {
+    if (!activeSection) return;
+    await withSync(async () => {
+      await toggleStudentAttendance(activeSection.id, student.id, true, teacherEmail);
+      showToast(`Marked ${student.name} present`);
+    });
+  };
+
+  const handleSaveEditedLog = async (
+    log: PassLogDoc,
+    patch: {
+      action: PassAction;
+      passesUsedAfter: number;
+      takenAt: number;
+      returnedAt: number;
+      durationSeconds: number;
+    },
+    alsoUpdateStudent?: {
+      sectionId: string;
+      studentId: string;
+      passesUsed: number;
+      outTimestamp: number;
+    }
+  ) => {
+    await withSync(async () => {
+      await updatePassLogEntry(log, patch, teacherEmail, alsoUpdateStudent);
+      showToast(`Updated history entry for ${log.studentName}`);
+    });
+  };
+
+  const handleDeleteLog = async (log: PassLogDoc) => {
+    await withSync(async () => {
+      await deletePassLogEntry(log.id);
+      showToast(`Deleted history entry for ${log.studentName}`);
+    });
+  };
+
+  const handleClearHistory = async (scopeSectionId: string | 'ALL') => {
+    await withSync(async () => {
+      const removed = await clearPassLogs(scopeSectionId);
+      showToast(
+        scopeSectionId === 'ALL'
+          ? `Cleared all pass history (${removed} entries)`
+          : `Cleared ${removed} pass history entries`
+      );
     });
   };
 
@@ -748,6 +910,8 @@ export default function App() {
           sections={sections}
           students={students}
           standalone
+          maxPasses={appSettings.maxQuarterPasses}
+          longPassAlertMinutes={appSettings.longPassAlertMinutes}
           onSwitchSection={handleSwitchSection}
           onAddToQueue={handleAddToQueue}
           onRemoveFromQueue={handleRemoveFromQueue}
@@ -787,6 +951,7 @@ export default function App() {
         onOpenProjector={() => setProjectorOpen(true)}
         onOpenSpotlight={handleOpenSpotlight}
         onOpenPassPopout={() => void handleOpenPassPopout()}
+        onOpenSettings={() => setSettingsOpen(true)}
         onSignOut={() => void signOutTeacher()}
         onSwitchTab={handleTabChange}
       />
@@ -811,6 +976,7 @@ export default function App() {
         {activeTab === 'roster' && (
           <ClassRosterTab
             students={students}
+            maxPasses={appSettings.maxQuarterPasses}
             onAddStudent={handleAddStudent}
             onBulkImport={handleBulkImport}
             onToggleAttendance={handleToggleAttendance}
@@ -840,6 +1006,8 @@ export default function App() {
             section={activeSection}
             students={students}
             passLogs={passLogs}
+            maxPasses={appSettings.maxQuarterPasses}
+            longPassAlertMinutes={appSettings.longPassAlertMinutes}
             onIssuePass={handleIssuePass}
             onReturnStudent={handleReturnStudent}
             onAdjustPassCount={handleAdjustPassCount}
@@ -859,8 +1027,13 @@ export default function App() {
             section={activeSection}
             students={students}
             passLogs={passLogs}
+            maxPasses={appSettings.maxQuarterPasses}
+            longPassAlertMinutes={appSettings.longPassAlertMinutes}
             onReturnStudent={handleReturnStudent}
             onOpenStudentHistory={openStudentHistory}
+            onEditLog={setEditingLog}
+            onDeleteLog={(log) => void handleDeleteLog(log)}
+            onOpenClearHistory={() => setClearHistoryOpen(true)}
           />
         )}
       </main>
@@ -872,6 +1045,8 @@ export default function App() {
         students={students}
         spotlightWinner={spotlightWinner}
         spotlightTrigger={spotlightTrigger}
+        defaultTimerSeconds={appSettings.defaultTimerSeconds}
+        timerSoundEnabled={appSettings.timerSoundEnabled}
         onSpotlightWinner={(winner) => {
           setSpotlightWinner(winner);
           if (winner) {
@@ -881,11 +1056,14 @@ export default function App() {
         onNotifyError={(msg) => showToast(msg, 'error')}
         onClose={() => setProjectorOpen(false)}
         onOpenGroupRules={() => setProjectorRulesOpen(true)}
+        onOpenSettings={() => setSettingsOpen(true)}
         onReshuffle={handleGenerateGroups}
         onMoveStudent={handleMoveStudent}
         onOpenQuickMove={(studentId, currentGroupId) =>
           setQuickMoveTarget({ studentId, currentGroupId })
         }
+        onRemoveAbsentFromGroups={handleRemoveAbsentFromProjector}
+        onRestorePresentStudent={handleRestorePresentStudent}
         onTimerFinished={() => showToast("🔔 Time's Up!")}
       />
 
@@ -895,6 +1073,8 @@ export default function App() {
           <PassMonitorBoard
             section={activeSection}
             students={students}
+            maxPasses={appSettings.maxQuarterPasses}
+            longPassAlertMinutes={appSettings.longPassAlertMinutes}
             onAddToQueue={handleAddToQueue}
             onRemoveFromQueue={handleRemoveFromQueue}
             onMoveQueueUp={handleMoveQueueUp}
@@ -924,6 +1104,8 @@ export default function App() {
             <PassMonitorBoard
               section={activeSection}
               students={students}
+              maxPasses={appSettings.maxQuarterPasses}
+              longPassAlertMinutes={appSettings.longPassAlertMinutes}
               onAddToQueue={handleAddToQueue}
               onRemoveFromQueue={handleRemoveFromQueue}
               onMoveQueueUp={handleMoveQueueUp}
@@ -976,6 +1158,7 @@ export default function App() {
       <ResetPassesModal
         open={resetModalOpen}
         sectionName={activeSection?.name || 'this section'}
+        maxPasses={appSettings.maxQuarterPasses}
         onConfirm={handleResetQuarterPasses}
         onClose={() => setResetModalOpen(false)}
       />
@@ -992,8 +1175,52 @@ export default function App() {
             : null
         }
         passLogs={passLogs}
+        maxPasses={appSettings.maxQuarterPasses}
+        longPassAlertMinutes={appSettings.longPassAlertMinutes}
         onReturnStudent={handleReturnStudent}
+        onEditLog={setEditingLog}
         onClose={() => setHistoryTarget(null)}
+      />
+
+      <SettingsModal
+        open={settingsOpen}
+        settings={appSettings}
+        sectionsCount={sections.length}
+        activeSectionName={activeSection?.name}
+        onPreviewTheme={(theme) =>
+          setPreviewTheme(theme === appSettings.theme ? null : theme)
+        }
+        onSave={handleSaveSettings}
+        onApplyGroupingToAllSections={handleApplyGroupingDefaultsToAll}
+        onClose={() => {
+          setPreviewTheme(null);
+          setSettingsOpen(false);
+        }}
+      />
+
+      <EditPassLogModal
+        log={editingLog}
+        maxPasses={appSettings.maxQuarterPasses}
+        liveStudent={
+          editingLog ? students.find((s) => s.id === editingLog.studentId) : undefined
+        }
+        onSave={handleSaveEditedLog}
+        onDelete={handleDeleteLog}
+        onClose={() => setEditingLog(null)}
+      />
+
+      <ClearHistoryModal
+        open={clearHistoryOpen}
+        sectionId={activeSection?.id}
+        sectionName={activeSection?.name}
+        sectionLogCount={
+          activeSection
+            ? passLogs.filter((l) => l.sectionId === activeSection.id).length
+            : 0
+        }
+        totalLogCount={passLogs.length}
+        onConfirmClear={handleClearHistory}
+        onClose={() => setClearHistoryOpen(false)}
       />
 
       {/* Toast Container */}

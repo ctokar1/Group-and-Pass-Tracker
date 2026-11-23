@@ -36,12 +36,38 @@ service cloud.firestore {
     }
 
     // --- ENTITY VALIDATION BLUEPRINTS ---
+    function isValidWorkspaceSettings(settings) {
+      return settings is map
+        && settings.keys().hasAll([
+          'theme', 'defaultTab', 'defaultQuickSize', 'defaultQuickCount',
+          'defaultForceExactCount', 'defaultTimerSeconds', 'timerSoundEnabled',
+          'longPassAlertMinutes', 'maxQuarterPasses'
+        ])
+        && settings.keys().hasOnly([
+          'theme', 'defaultTab', 'defaultQuickSize', 'defaultQuickCount',
+          'defaultForceExactCount', 'defaultTimerSeconds', 'timerSoundEnabled',
+          'longPassAlertMinutes', 'maxQuarterPasses'
+        ])
+        && settings.theme is string && settings.theme.size() >= 1 && settings.theme.size() <= 32
+        && settings.theme in ['gold', 'sapphire', 'emerald', 'violet', 'crimson', 'tangerine']
+        && settings.defaultTab is string && settings.defaultTab.size() >= 1 && settings.defaultTab.size() <= 32
+        && settings.defaultTab in ['groups', 'roster', 'settings', 'passes', 'history']
+        && settings.defaultQuickSize is int && settings.defaultQuickSize >= 0 && settings.defaultQuickSize <= 12
+        && settings.defaultQuickCount is int && settings.defaultQuickCount >= 0 && settings.defaultQuickCount <= 8
+        && settings.defaultForceExactCount is bool
+        && settings.defaultTimerSeconds is int && settings.defaultTimerSeconds >= 10 && settings.defaultTimerSeconds <= 59999
+        && settings.timerSoundEnabled is bool
+        && settings.longPassAlertMinutes is int && settings.longPassAlertMinutes >= 1 && settings.longPassAlertMinutes <= 60
+        && settings.maxQuarterPasses is int && settings.maxQuarterPasses >= 1 && settings.maxQuarterPasses <= 10;
+    }
+
     function isValidWorkspace(data, workspaceId) {
       return data.keys().hasAll(['id', 'activeSectionId', 'createdBy', 'updatedBy', 'createdAt', 'updatedAt'])
-        && data.keys().hasOnly(['id', 'activeSectionId', 'createdBy', 'updatedBy', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'activeSectionId', 'settings', 'createdBy', 'updatedBy', 'createdAt', 'updatedAt'])
         && data.id == workspaceId
         && isValidId(data.id)
         && isValidId(data.activeSectionId)
+        && (!('settings' in data) || isValidWorkspaceSettings(data.settings))
         && data.createdBy is string && data.createdBy.size() >= 3 && data.createdBy.size() <= 256
         && data.updatedBy is string && data.updatedBy.size() >= 3 && data.updatedBy.size() <= 256
         && data.updatedBy == request.auth.token.email.lower()
@@ -109,7 +135,7 @@ service cloud.firestore {
         && isValidId(data.sectionId)
         && data.name is string && data.name.size() >= 1 && data.name.size() <= 100
         && data.present is bool
-        && data.passesUsed is int && data.passesUsed >= 0 && data.passesUsed <= 4
+        && data.passesUsed is int && data.passesUsed >= 0 && data.passesUsed <= 10
         && (data.outTimestamp is int || data.outTimestamp is float)
         && data.outTimestamp >= 0
         && data.createdBy is string && data.createdBy.size() >= 3 && data.createdBy.size() <= 256
@@ -138,7 +164,7 @@ service cloud.firestore {
         && isValidId(data.studentId)
         && data.studentName is string && data.studentName.size() >= 1 && data.studentName.size() <= 100
         && data.action in ['issued', 'returned', 'adjusted', 'reset']
-        && data.passesUsedAfter is int && data.passesUsedAfter >= 0 && data.passesUsedAfter <= 4
+        && data.passesUsedAfter is int && data.passesUsedAfter >= 0 && data.passesUsedAfter <= 10
         && (data.durationMinutes is int || data.durationMinutes is float)
         && data.durationMinutes >= 0 && data.durationMinutes <= 10080
         && (!('durationSeconds' in data) || ((data.durationSeconds is int || data.durationSeconds is float) && data.durationSeconds >= 0 && data.durationSeconds <= 604800))
@@ -173,7 +199,10 @@ service cloud.firestore {
         && incoming().createdBy == existing().createdBy
         && incoming().createdAt == existing().createdAt
         && incoming().updatedAt == request.time
-        && incoming().diff(existing()).affectedKeys().hasOnly(['activeSectionId', 'updatedBy', 'updatedAt']);
+        && (
+          incoming().diff(existing()).affectedKeys().hasOnly(['activeSectionId', 'updatedBy', 'updatedAt']) ||
+          incoming().diff(existing()).affectedKeys().hasOnly(['settings', 'updatedBy', 'updatedAt'])
+        );
 
       allow delete: if false;
 
@@ -280,7 +309,7 @@ service cloud.firestore {
         }
       }
 
-      // Pass Logs Subcollection (Append-Only Audit Trail)
+      // Pass Logs Subcollection
       match /passLogs/{logId} {
         allow get: if isAuthorizedTeacher()
           && isValidId(workspaceId)
@@ -300,7 +329,27 @@ service cloud.firestore {
           && incoming().createdAt == request.time
           && existsAfter(/databases/$(database)/documents/workspaces/$(workspaceId));
 
-        allow update, delete: if false;
+        allow update: if isAuthorizedTeacher()
+          && isValidId(workspaceId)
+          && isSharedWorkspace(workspaceId)
+          && isValidId(logId)
+          && isValidPassLog(incoming(), workspaceId, logId)
+          && incoming().id == existing().id
+          && incoming().workspaceId == existing().workspaceId
+          && incoming().sectionId == existing().sectionId
+          && incoming().studentId == existing().studentId
+          && incoming().createdAt == existing().createdAt
+          && exists(/databases/$(database)/documents/workspaces/$(workspaceId))
+          && incoming().diff(existing()).affectedKeys().hasOnly([
+            'sectionName', 'studentName', 'action', 'passesUsedAfter',
+            'durationMinutes', 'durationSeconds', 'takenAt', 'returnedAt', 'actorEmail'
+          ]);
+
+        allow delete: if isAuthorizedTeacher()
+          && isValidId(workspaceId)
+          && isSharedWorkspace(workspaceId)
+          && isValidId(logId)
+          && exists(/databases/$(database)/documents/workspaces/$(workspaceId));
       }
     }
   }

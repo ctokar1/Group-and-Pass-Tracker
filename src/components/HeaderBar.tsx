@@ -5,6 +5,7 @@ import {
   Monitor,
   PictureInPicture2,
   Plus,
+  Settings,
   Sparkles,
 } from 'lucide-react';
 import type { ActiveTab, ClassSectionDoc } from '../types/classroom';
@@ -21,6 +22,7 @@ interface HeaderBarProps {
   onOpenProjector: () => void;
   onOpenSpotlight: () => void;
   onOpenPassPopout: () => void;
+  onOpenSettings: () => void;
   onSignOut: () => void;
   onSwitchTab: (tab: ActiveTab) => void;
 }
@@ -37,13 +39,14 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
   onOpenProjector,
   onOpenSpotlight,
   onOpenPassPopout,
+  onOpenSettings,
   onSignOut,
   onSwitchTab,
 }) => {
   const tabs: Array<{ id: ActiveTab; label: string; emoji: string }> = [
     { id: 'groups', label: 'Color Groups', emoji: '🎨' },
     { id: 'roster', label: 'Class Roster', emoji: '📋' },
-    { id: 'settings', label: 'Group Rules & Sections', emoji: '⚙️' },
+    { id: 'settings', label: 'Group Rules & Sections', emoji: '🧩' },
     { id: 'passes', label: 'Hall Passes', emoji: '🚽' },
     { id: 'history', label: 'Pass History', emoji: '📜' },
   ];
@@ -137,6 +140,14 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
             >
               <PictureInPicture2 className="w-4 h-4" />
               Pass Window
+            </button>
+            <button
+              onClick={onOpenSettings}
+              className="p-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-amber-300 hover:text-white rounded-xl flex items-center justify-center transition-all shrink-0 cursor-pointer"
+              title="Classroom Settings & Color Themes"
+              aria-label="Open Settings and Color Themes"
+            >
+              <Settings className="w-4 h-4" />
             </button>
           </div>
         </div>

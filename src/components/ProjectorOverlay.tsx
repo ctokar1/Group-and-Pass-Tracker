@@ -8,6 +8,8 @@ import {
   Shuffle,
   Sparkles,
   Timer,
+  UserCheck,
+  UserX,
   X,
 } from 'lucide-react';
 import {
@@ -29,14 +31,44 @@ interface ProjectorOverlayProps {
   students: StudentDoc[];
   spotlightWinner: SpotlightWinnerInfo | null;
   spotlightTrigger: number;
+  defaultTimerSeconds?: number;
+  timerSoundEnabled?: boolean;
   onSpotlightWinner: (winner: SpotlightWinnerInfo | null) => void;
   onNotifyError: (msg: string) => void;
   onClose: () => void;
   onOpenGroupRules: () => void;
+  onOpenSettings: () => void;
   onReshuffle: () => void;
   onMoveStudent: (studentId: string, fromGroupId: string, toGroupId: string) => void;
   onOpenQuickMove: (studentId: string, groupId: string) => void;
+  onRemoveAbsentFromGroups: (student: StudentDoc) => Promise<void>;
+  onRestorePresentStudent: (student: StudentDoc) => Promise<void>;
   onTimerFinished: () => void;
+}
+
+function playTimerChime() {
+  try {
+    const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
+    const notes = [880, 1174.66];
+    notes.forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      const start = ctx.currentTime + i * 0.18;
+      gain.gain.setValueAtTime(0.001, start);
+      gain.gain.exponentialRampToValueAtTime(0.18, start + 0.03);
+      gain.gain.exponentialRampToValueAtTime(0.001, start + 0.45);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(start);
+      osc.stop(start + 0.48);
+    });
+  } catch {
+    // ignore Web Audio failures if blocked
+  }
 }
 
 export const ProjectorOverlay: React.FC<ProjectorOverlayProps> = ({
@@ -45,20 +77,26 @@ export const ProjectorOverlay: React.FC<ProjectorOverlayProps> = ({
   students,
   spotlightWinner,
   spotlightTrigger,
+  defaultTimerSeconds = 300,
+  timerSoundEnabled = true,
   onSpotlightWinner,
   onNotifyError,
   onClose,
   onOpenGroupRules,
+  onOpenSettings,
   onReshuffle,
   onMoveStudent,
   onOpenQuickMove,
+  onRemoveAbsentFromGroups,
+  onRestorePresentStudent,
   onTimerFinished,
 }) => {
   const [showTimer, setShowTimer] = useState(false);
-  const [secondsRemaining, setSecondsRemaining] = useState(300);
-  const [customDurationSeconds, setCustomDurationSeconds] = useState(300);
-  const [minInput, setMinInput] = useState('5');
-  const [secInput, setSecInput] = useState('00');
+  const [showAbsentPanel, setShowAbsentPanel] = useState(false);
+  const [secondsRemaining, setSecondsRemaining] = useState(defaultTimerSeconds);
+  const [customDurationSeconds, setCustomDurationSeconds] = useState(defaultTimerSeconds);
+  const [minInput, setMinInput] = useState(() => String(Math.floor(defaultTimerSeconds / 60)));
+  const [secInput, setSecInput] = useState(() => String(defaultTimerSeconds % 60).padStart(2, '0'));
   const [timerRunning, setTimerRunning] = useState(false);
 
   const [isSpotlighting, setIsSpotlighting] = useState(false);
@@ -99,12 +137,21 @@ export const ProjectorOverlay: React.FC<ProjectorOverlayProps> = ({
   );
 
   useEffect(() => {
+    if (!timerRunning) {
+      setCustomDurationSeconds(defaultTimerSeconds);
+      setSecondsRemaining(defaultTimerSeconds);
+      syncInputsFromSeconds(defaultTimerSeconds);
+    }
+  }, [defaultTimerSeconds, syncInputsFromSeconds]);
+
+  useEffect(() => {
     if (!timerRunning) return;
     const id = window.setInterval(() => {
       setSecondsRemaining((prev) => {
         if (prev <= 1) {
           setTimerRunning(false);
           syncInputsFromSeconds(0);
+          if (timerSoundEnabled) playTimerChime();
           onTimerFinished();
           return 0;
         }
@@ -114,7 +161,7 @@ export const ProjectorOverlay: React.FC<ProjectorOverlayProps> = ({
       });
     }, 1000);
     return () => window.clearInterval(id);
-  }, [timerRunning, onTimerFinished, syncInputsFromSeconds]);
+  }, [timerRunning, timerSoundEnabled, onTimerFinished, syncInputsFromSeconds]);
 
   const runProjectedSpotlight = useCallback(() => {
     clearSpotlightTimeout();
@@ -198,6 +245,9 @@ export const ProjectorOverlay: React.FC<ProjectorOverlayProps> = ({
 
   const groups = section?.groups || [];
   const studentMap = new Map(students.map((s) => [s.id, s]));
+  const absentStudents = students
+    .filter((s) => !s.present)
+    .sort((a, b) => a.name.localeCompare(b.name));
 
   const mins = Math.floor(secondsRemaining / 60);
   const secs = secondsRemaining % 60;
@@ -417,7 +467,7 @@ export const ProjectorOverlay: React.FC<ProjectorOverlayProps> = ({
               <button
                 onClick={() => {
                   setTimerRunning(false);
-                  const resetTo = customDurationSeconds > 0 ? customDurationSeconds : 300;
+                  const resetTo = customDurationSeconds > 0 ? customDurationSeconds : defaultTimerSeconds;
                   setSecondsRemaining(resetTo);
                   syncInputsFromSeconds(resetTo);
                 }}
@@ -495,12 +545,34 @@ export const ProjectorOverlay: React.FC<ProjectorOverlayProps> = ({
             <Shuffle className="w-4 h-4" />
             Reshuffle
           </button>
+          {absentStudents.length > 0 && (
+            <button
+              onClick={() => setShowAbsentPanel((v) => !v)}
+              className={`px-3 py-2 font-extrabold text-xs sm:text-sm rounded-xl border flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
+                showAbsentPanel
+                  ? 'bg-rose-500 text-white border-rose-400'
+                  : 'bg-slate-800 hover:bg-slate-700 text-rose-300 border-slate-700'
+              }`}
+              title="View absent students removed from groups"
+            >
+              <UserX className="w-4 h-4" />
+              Absent ({absentStudents.length})
+            </button>
+          )}
           <button
             onClick={onOpenGroupRules}
             className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-extrabold text-xs sm:text-sm rounded-xl border border-slate-700 flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
           >
-            <Settings className="w-4 h-4" />
+            <Shuffle className="w-4 h-4 text-amber-400" />
             Group Rules
+          </button>
+          <button
+            onClick={onOpenSettings}
+            className="p-2 bg-slate-800 hover:bg-slate-700 text-amber-300 rounded-xl border border-slate-700 cursor-pointer"
+            title="Settings & Color Themes"
+            aria-label="Open Settings and Color Themes"
+          >
+            <Settings className="w-4 h-4" />
           </button>
           <button
             onClick={onClose}
@@ -511,6 +583,32 @@ export const ProjectorOverlay: React.FC<ProjectorOverlayProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Absent Students Panel (Restore Present if someone walks in or was clicked by mistake) */}
+      {showAbsentPanel && absentStudents.length > 0 && (
+        <div className="no-print bg-slate-900 border border-rose-500/40 rounded-2xl px-4 py-3 mb-2 flex flex-wrap items-center justify-between gap-3 shrink-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-black text-rose-300 flex items-center gap-1.5 mr-1">
+              <UserX className="w-3.5 h-3.5" />
+              Absent / Removed ({absentStudents.length}):
+            </span>
+            {absentStudents.map((st) => (
+              <button
+                key={st.id}
+                onClick={() => void onRestorePresentStudent(st)}
+                className="px-2.5 py-1 bg-slate-950 hover:bg-emerald-950/60 border border-slate-700 hover:border-emerald-500/60 rounded-lg text-xs font-bold text-slate-200 hover:text-emerald-300 flex items-center gap-1.5 cursor-pointer transition-colors"
+                title={`Mark ${st.name} present again`}
+              >
+                <span>{st.name}</span>
+                <UserCheck className="w-3 h-3 text-emerald-400" />
+              </button>
+            ))}
+          </div>
+          <span className="text-[11px] text-slate-400">
+            Click a student to mark present, then click Reshuffle to include them.
+          </span>
+        </div>
+      )}
 
       {/* Live Shuffling Banner */}
       {isSpotlighting && (
@@ -610,18 +708,32 @@ export const ProjectorOverlay: React.FC<ProjectorOverlayProps> = ({
                             )}
                             <span>{st.name}</span>
                           </span>
-                          <button
-                            onClick={() => onOpenQuickMove(st.id, grp.id)}
-                            className={`ml-1.5 shrink-0 cursor-pointer ${
-                              isHighlighted
-                                ? 'text-black/70 hover:text-black'
-                                : 'text-slate-500 hover:text-amber-300'
-                            }`}
-                            title="Move Group"
-                            aria-label={`Move ${st.name}`}
-                          >
-                            <ArrowLeftRight className="w-3.5 h-3.5" />
-                          </button>
+                          <div className="flex items-center gap-1 ml-1.5 shrink-0">
+                            <button
+                              onClick={() => onOpenQuickMove(st.id, grp.id)}
+                              className={`p-1 rounded cursor-pointer ${
+                                isHighlighted
+                                  ? 'text-black/70 hover:text-black'
+                                  : 'text-slate-500 hover:text-amber-300'
+                              }`}
+                              title="Move Group"
+                              aria-label={`Move ${st.name}`}
+                            >
+                              <ArrowLeftRight className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => void onRemoveAbsentFromGroups(st)}
+                              className={`p-1 rounded cursor-pointer ${
+                                isHighlighted
+                                  ? 'text-black/70 hover:text-rose-800'
+                                  : 'text-slate-500 hover:text-rose-400'
+                              }`}
+                              title={`Mark ${st.name} absent & remove from groups`}
+                              aria-label={`Mark ${st.name} absent and remove from groups`}
+                            >
+                              <UserX className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </div>
                       );
                     })

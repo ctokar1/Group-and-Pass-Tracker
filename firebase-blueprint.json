@@ -19,6 +19,10 @@
           "maxLength": 128,
           "pattern": "^[a-zA-Z0-9_\\-]+$"
         },
+        "settings": {
+          "type": "object",
+          "description": "Shared classroom theme and default configuration settings."
+        },
         "createdBy": {
           "type": "string",
           "description": "Verified teacher email who initialized the workspace.",
@@ -169,7 +173,7 @@
         },
         "passesUsed": {
           "type": "number",
-          "description": "Number of quarter bathroom passes used (0-4)."
+          "description": "Number of quarter bathroom passes used (0-10)."
         },
         "outTimestamp": {
           "type": "number",
@@ -214,7 +218,7 @@
     },
     "PassLog": {
       "title": "PassLog",
-      "description": "Immutable audit event when a hall pass is issued, returned, adjusted, or reset.",
+      "description": "Editable hall pass audit event when a hall pass is issued, returned, adjusted, or reset.",
       "type": "object",
       "properties": {
         "id": {
@@ -264,7 +268,7 @@
         },
         "passesUsedAfter": {
           "type": "number",
-          "description": "Student's pass count after this action (0-4)."
+          "description": "Student's pass count after this action (0-10)."
         },
         "durationMinutes": {
           "type": "number",

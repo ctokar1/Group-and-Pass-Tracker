@@ -4,6 +4,7 @@ import {
   Clock,
   Download,
   History,
+  Pencil,
   User,
   X,
 } from 'lucide-react';
@@ -100,7 +101,10 @@ export function formatTimeOnly(ms: number): string {
 interface StudentHistoryModalProps {
   target: StudentHistoryTarget | null;
   passLogs: PassLogDoc[];
+  maxPasses?: number;
+  longPassAlertMinutes?: number;
   onReturnStudent?: (student: StudentDoc) => Promise<void>;
+  onEditLog?: (log: PassLogDoc) => void;
   onClose: () => void;
 }
 
@@ -113,12 +117,16 @@ interface StudentTripItem {
   passesUsedAfter: number;
   actorEmail: string;
   isActive: boolean;
+  sourceLog?: PassLogDoc;
 }
 
 export const StudentHistoryModal: React.FC<StudentHistoryModalProps> = ({
   target,
   passLogs,
+  maxPasses = MAX_QUARTER_PASSES,
+  longPassAlertMinutes = 7,
   onReturnStudent,
+  onEditLog,
   onClose,
 }) => {
   const [viewMode, setViewMode] = useState<'trips' | 'events'>('trips');
@@ -188,6 +196,7 @@ export const StudentHistoryModal: React.FC<StudentHistoryModalProps> = ({
           passesUsedAfter: log.passesUsedAfter,
           actorEmail: log.actorEmail,
           isActive: false,
+          sourceLog: log,
         });
       });
 
@@ -221,7 +230,7 @@ export const StudentHistoryModal: React.FC<StudentHistoryModalProps> = ({
 
   const handleExportStudentCSV = () => {
     let csv =
-      'Student Name,Period,Date Taken,Time Taken,Time Returned,Time Out,Status,Pass Balance,Teacher\n';
+      'Student Name,Period,Date Taken,Time Taken,Time Returned,Time Out,Status,Passes Left,Teacher\n';
     trips.forEach((row) => {
       const dateStr = formatDateOnly(row.takenMs);
       const timeTakenStr = formatTimeOnly(row.takenMs);
@@ -230,7 +239,8 @@ export const StudentHistoryModal: React.FC<StudentHistoryModalProps> = ({
         : 'Still Out';
       const durStr = formatDurationExact(row.durationSeconds);
       const statusStr = row.isActive ? 'Currently Out' : 'Returned';
-      csv += `"${target.name.replace(/"/g, '""')}","${row.sectionName.replace(/"/g, '""')}","${dateStr}","${timeTakenStr}","${timeReturnedStr}","${durStr}","${statusStr}","${row.passesUsedAfter}/${MAX_QUARTER_PASSES}","${row.actorEmail}"\n`;
+      const passesLeftAfter = Math.max(0, maxPasses - row.passesUsedAfter);
+      csv += `"${target.name.replace(/"/g, '""')}","${row.sectionName.replace(/"/g, '""')}","${dateStr}","${timeTakenStr}","${timeReturnedStr}","${durStr}","${statusStr}","${passesLeftAfter}/${maxPasses}","${row.actorEmail}"\n`;
     });
 
     const blob = new Blob([csv], { type: 'text/csv' });
@@ -306,10 +316,10 @@ export const StudentHistoryModal: React.FC<StudentHistoryModalProps> = ({
         <div className="p-5 border-b border-slate-800 bg-slate-950/50 grid grid-cols-2 sm:grid-cols-4 gap-3">
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-3">
             <span className="text-[11px] font-semibold text-slate-400 block">
-              Quarter Balance
+              Passes Left
             </span>
             <span className="text-xl font-black text-amber-300 font-mono-tabular mt-0.5 block">
-              {passesUsedDisplay} / {MAX_QUARTER_PASSES}
+              {Math.max(0, maxPasses - passesUsedDisplay)} / {maxPasses}
             </span>
           </div>
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-3">
@@ -389,13 +399,13 @@ export const StudentHistoryModal: React.FC<StudentHistoryModalProps> = ({
                       <th className="py-2.5 px-3 font-semibold">Time Returned</th>
                       <th className="py-2.5 px-3 font-semibold text-right">Time Out</th>
                       <th className="py-2.5 px-3 font-semibold">Period</th>
-                      <th className="py-2.5 px-3 font-semibold text-right">Pass #</th>
+                      <th className="py-2.5 px-3 font-semibold text-right">Passes Left</th>
                       <th className="py-2.5 pl-3 font-semibold text-right">Teacher</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/60">
                     {trips.map((row) => {
-                      const isLong = row.durationSeconds >= 420;
+                      const isLong = row.durationSeconds >= longPassAlertMinutes * 60;
                       return (
                         <tr
                           key={row.id}
@@ -440,10 +450,22 @@ export const StudentHistoryModal: React.FC<StudentHistoryModalProps> = ({
                             {row.sectionName}
                           </td>
                           <td className="py-3 px-3 text-right font-mono-tabular text-slate-300 whitespace-nowrap">
-                            {row.passesUsedAfter}/{MAX_QUARTER_PASSES}
+                            {Math.max(0, maxPasses - row.passesUsedAfter)}/{maxPasses}
                           </td>
                           <td className="py-3 pl-3 text-right text-slate-400 whitespace-nowrap">
-                            {row.actorEmail}
+                            <div className="inline-flex items-center gap-2">
+                              <span>{row.actorEmail}</span>
+                              {row.sourceLog && onEditLog && (
+                                <button
+                                  onClick={() => onEditLog(row.sourceLog!)}
+                                  className="inline-flex items-center gap-1 px-2 py-0.5 bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold text-[11px] rounded-md border border-slate-700 cursor-pointer"
+                                  title="Edit trip entry"
+                                >
+                                  <Pencil className="w-3 h-3" />
+                                  Edit
+                                </button>
+                              )}
+                            </div>
                           </td>
                         </tr>
                       );
@@ -466,7 +488,7 @@ export const StudentHistoryModal: React.FC<StudentHistoryModalProps> = ({
                     <th className="py-2.5 px-3 font-semibold">Time</th>
                     <th className="py-2.5 px-3 font-semibold text-right">Time Out</th>
                     <th className="py-2.5 px-3 font-semibold">Period</th>
-                    <th className="py-2.5 px-3 font-semibold text-right">Pass Balance</th>
+                    <th className="py-2.5 px-3 font-semibold text-right">Passes Left</th>
                     <th className="py-2.5 pl-3 font-semibold text-right">Teacher</th>
                   </tr>
                 </thead>
@@ -510,10 +532,22 @@ export const StudentHistoryModal: React.FC<StudentHistoryModalProps> = ({
                           {log.sectionName}
                         </td>
                         <td className="py-2.5 px-3 text-right font-mono-tabular text-slate-300 whitespace-nowrap">
-                          {log.passesUsedAfter}/{MAX_QUARTER_PASSES}
+                          {Math.max(0, maxPasses - log.passesUsedAfter)}/{maxPasses}
                         </td>
                         <td className="py-2.5 pl-3 text-right text-slate-400 whitespace-nowrap">
-                          {log.actorEmail}
+                          <div className="inline-flex items-center gap-2">
+                            <span>{log.actorEmail}</span>
+                            {onEditLog && (
+                              <button
+                                onClick={() => onEditLog(log)}
+                                className="inline-flex items-center gap-1 px-2 py-0.5 bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold text-[11px] rounded-md border border-slate-700 cursor-pointer"
+                                title="Edit event"
+                              >
+                                <Pencil className="w-3 h-3" />
+                                Edit
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     );

@@ -2,6 +2,72 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* Color Themes (override Tailwind CSS v4 tokens cleanly per data-theme) */
+:root[data-theme="sapphire"] {
+  --color-slate-950: #040a17;
+  --color-slate-900: #0a1428;
+  --color-slate-800: #152544;
+  --color-slate-700: #243b67;
+  --color-amber-300: #7dd3fc;
+  --color-amber-400: #38bdf8;
+  --color-amber-500: #0ea5e9;
+  --color-amber-600: #0284c7;
+  --color-amber-950: #082f49;
+  --color-yellow-300: #67e8f9;
+}
+
+:root[data-theme="emerald"] {
+  --color-slate-950: #02100c;
+  --color-slate-900: #061d16;
+  --color-slate-800: #0d3328;
+  --color-slate-700: #164e3e;
+  --color-amber-300: #6ee7b7;
+  --color-amber-400: #34d399;
+  --color-amber-500: #10b981;
+  --color-amber-600: #059669;
+  --color-amber-950: #022c22;
+  --color-yellow-300: #5eead4;
+}
+
+:root[data-theme="violet"] {
+  --color-slate-950: #090614;
+  --color-slate-900: #120d26;
+  --color-slate-800: #221942;
+  --color-slate-700: #352863;
+  --color-amber-300: #d8b4fe;
+  --color-amber-400: #c084fc;
+  --color-amber-500: #a855f7;
+  --color-amber-600: #9333ea;
+  --color-amber-950: #2e1065;
+  --color-yellow-300: #c4b5fd;
+}
+
+:root[data-theme="crimson"] {
+  --color-slate-950: #12060a;
+  --color-slate-900: #1f0c12;
+  --color-slate-800: #361520;
+  --color-slate-700: #522131;
+  --color-amber-300: #fda4af;
+  --color-amber-400: #fb7185;
+  --color-amber-500: #f43f5e;
+  --color-amber-600: #e11d48;
+  --color-amber-950: #4c0519;
+  --color-yellow-300: #fbcfe8;
+}
+
+:root[data-theme="tangerine"] {
+  --color-slate-950: #110a05;
+  --color-slate-900: #1d120a;
+  --color-slate-800: #332013;
+  --color-slate-700: #4d311d;
+  --color-amber-300: #fdba74;
+  --color-amber-400: #fb923c;
+  --color-amber-500: #f97316;
+  --color-amber-600: #ea580c;
+  --color-amber-950: #431407;
+  --color-yellow-300: #fde047;
+}
+
 @layer base {
   body {
     font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
@@ -23,14 +89,14 @@
   height: 8px;
 }
 ::-webkit-scrollbar-track {
-  background: #0f172a;
+  background: var(--color-slate-900, #0f172a);
 }
 ::-webkit-scrollbar-thumb {
-  background: #334155;
+  background: var(--color-slate-700, #334155);
   border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #475569;
+  background: var(--color-slate-600, #475569);
 }
 
 /* Spotlight Glow Animation */

@@ -14,11 +14,100 @@ export const LIMITS = {
   EMAIL_MAX: 256,
   MAX_GROUPS: 8,
   MAX_GROUP_STUDENTS: 100,
-  MAX_PASSES: 4,
+  MAX_PASSES: 10,
+  DEFAULT_MAX_PASSES: 4,
   MAX_DURATION_MINUTES: 10080,
   MAX_DURATION_SECONDS: 604800,
   ID_PATTERN: /^[a-zA-Z0-9_-]+$/,
 } as const;
+
+export type ThemeId = 'gold' | 'sapphire' | 'emerald' | 'violet' | 'crimson' | 'tangerine';
+
+export interface ThemeOption {
+  id: ThemeId;
+  name: string;
+  subtitle: string;
+  bgHex: string;
+  surfaceHex: string;
+  accentHex: string;
+}
+
+export const THEME_OPTIONS: ThemeOption[] = [
+  {
+    id: 'gold',
+    name: 'Heights Tiger Gold',
+    subtitle: 'Classic Black & Gold',
+    bgHex: '#020617',
+    surfaceHex: '#0f172a',
+    accentHex: '#fbbf24',
+  },
+  {
+    id: 'sapphire',
+    name: 'Midnight Sapphire',
+    subtitle: 'Deep Navy & Electric Sky',
+    bgHex: '#040a17',
+    surfaceHex: '#0a1428',
+    accentHex: '#38bdf8',
+  },
+  {
+    id: 'emerald',
+    name: 'Emerald Forest',
+    subtitle: 'Pine Slate & Mint Green',
+    bgHex: '#02100c',
+    surfaceHex: '#061d16',
+    accentHex: '#34d399',
+  },
+  {
+    id: 'violet',
+    name: 'Royal Violet',
+    subtitle: 'Obsidian & Lavender',
+    bgHex: '#090614',
+    surfaceHex: '#120d26',
+    accentHex: '#c084fc',
+  },
+  {
+    id: 'crimson',
+    name: 'Crimson Blaze',
+    subtitle: 'Charcoal & Rose Red',
+    bgHex: '#12060a',
+    surfaceHex: '#1f0c12',
+    accentHex: '#fb7185',
+  },
+  {
+    id: 'tangerine',
+    name: 'Sunset Tangerine',
+    subtitle: 'Warm Espresso & Orange',
+    bgHex: '#110a05',
+    surfaceHex: '#1d120a',
+    accentHex: '#fb923c',
+  },
+];
+
+export type ActiveTab = 'groups' | 'roster' | 'settings' | 'passes' | 'history';
+
+export interface AppSettings {
+  theme: ThemeId;
+  defaultTab: ActiveTab;
+  defaultQuickSize: number;
+  defaultQuickCount: number;
+  defaultForceExactCount: boolean;
+  defaultTimerSeconds: number;
+  timerSoundEnabled: boolean;
+  longPassAlertMinutes: number;
+  maxQuarterPasses: number;
+}
+
+export const DEFAULT_APP_SETTINGS: AppSettings = {
+  theme: 'gold',
+  defaultTab: 'passes',
+  defaultQuickSize: 4,
+  defaultQuickCount: 0,
+  defaultForceExactCount: false,
+  defaultTimerSeconds: 300,
+  timerSoundEnabled: true,
+  longPassAlertMinutes: 7,
+  maxQuarterPasses: 4,
+};
 
 export interface ColorDefinition {
   name: string;
@@ -79,6 +168,7 @@ export interface ClassSectionDoc {
 export interface WorkspaceDoc {
   id: string;
   activeSectionId: string;
+  settings?: Partial<AppSettings>;
   createdBy: string;
   updatedBy: string;
   createdAt?: unknown;
@@ -103,8 +193,6 @@ export interface PassLogDoc {
   actorEmail: string;
   createdAt?: unknown;
 }
-
-export type ActiveTab = 'groups' | 'roster' | 'settings' | 'passes' | 'history';
 
 export interface ToastMessage {
   id: string;

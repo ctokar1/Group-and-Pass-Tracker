@@ -352,6 +352,7 @@ export const QuickMoveModal: React.FC<QuickMoveModalProps> = ({
 interface ResetPassesModalProps {
   open: boolean;
   sectionName: string;
+  maxPasses?: number;
   onConfirm: () => Promise<void>;
   onClose: () => void;
 }
@@ -359,6 +360,7 @@ interface ResetPassesModalProps {
 export const ResetPassesModal: React.FC<ResetPassesModalProps> = ({
   open,
   sectionName,
+  maxPasses = 4,
   onConfirm,
   onClose,
 }) => {
@@ -386,7 +388,7 @@ export const ResetPassesModal: React.FC<ResetPassesModalProps> = ({
         <h3 className="font-black text-xl text-white">Reset Passes for Quarter?</h3>
         <p className="text-xs text-slate-300 leading-relaxed">
           This will reset all bathroom pass balances back to{' '}
-          <strong className="text-amber-300">0 / {LIMITS.MAX_PASSES}</strong> for{' '}
+          <strong className="text-amber-300">{maxPasses} / {maxPasses}</strong> for{' '}
           <span className="font-extrabold text-white">{sectionName}</span>. This action cannot be undone.
         </p>
         <div className="flex gap-2 pt-2">

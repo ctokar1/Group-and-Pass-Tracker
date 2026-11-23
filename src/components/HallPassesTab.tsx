@@ -28,6 +28,8 @@ interface HallPassesTabProps {
   section: ClassSectionDoc | undefined;
   students: StudentDoc[];
   passLogs: PassLogDoc[];
+  maxPasses?: number;
+  longPassAlertMinutes?: number;
   onIssuePass: (student: StudentDoc) => Promise<void>;
   onReturnStudent: (student: StudentDoc) => Promise<void>;
   onAdjustPassCount: (student: StudentDoc, delta: number) => Promise<void>;
@@ -63,6 +65,8 @@ export const HallPassesTab: React.FC<HallPassesTabProps> = ({
   section,
   students,
   passLogs,
+  maxPasses = MAX_QUARTER_PASSES,
+  longPassAlertMinutes = 7,
   onIssuePass,
   onReturnStudent,
   onAdjustPassCount,
@@ -120,9 +124,9 @@ export const HallPassesTab: React.FC<HallPassesTabProps> = ({
         (st) =>
           st.outTimestamp <= 0 &&
           !queuedIndexMap.has(st.id) &&
-          st.passesUsed < LIMITS.MAX_PASSES
+          st.passesUsed < maxPasses
       ),
-    [sortedRoster, queuedIndexMap]
+    [sortedRoster, queuedIndexMap, maxPasses]
   );
 
   useEffect(() => {
@@ -147,7 +151,7 @@ export const HallPassesTab: React.FC<HallPassesTabProps> = ({
             <span>🚽</span> Quarter Bathroom Pass Tracker
           </h2>
           <p className="text-xs text-slate-400 mt-0.5">
-            Only <strong className="text-amber-300">1 student</strong> allowed out at a time · Students receive {MAX_QUARTER_PASSES} passes per quarter.
+            Only <strong className="text-amber-300">1 student</strong> allowed out at a time · Students receive {maxPasses} passes per quarter.
           </p>
         </div>
 
@@ -201,7 +205,7 @@ export const HallPassesTab: React.FC<HallPassesTabProps> = ({
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
             {currentlyOut.map((st) => {
               const elapsedSeconds = Math.max(0, Math.floor((nowMs - st.outTimestamp) / 1000));
-              const isOverdue = elapsedSeconds >= 420;
+              const isOverdue = elapsedSeconds >= longPassAlertMinutes * 60;
               return (
                 <div
                   key={st.id}
@@ -270,11 +274,14 @@ export const HallPassesTab: React.FC<HallPassesTabProps> = ({
               {eligibleToQueue.length === 0 ? (
                 <option value="">No eligible students left</option>
               ) : (
-                eligibleToQueue.map((st) => (
-                  <option key={st.id} value={st.id}>
-                    {st.name} ({st.passesUsed}/{MAX_QUARTER_PASSES})
-                  </option>
-                ))
+                eligibleToQueue.map((st) => {
+                  const left = Math.max(0, maxPasses - st.passesUsed);
+                  return (
+                    <option key={st.id} value={st.id}>
+                      {st.name} ({left}/{maxPasses} left)
+                    </option>
+                  );
+                })
               )}
             </select>
             <button
@@ -323,7 +330,7 @@ export const HallPassesTab: React.FC<HallPassesTabProps> = ({
                   #{idx + 1}
                 </span>
                 <span className="font-bold text-white">{st.name}</span>
-                {!someoneOut && idx === 0 && st.passesUsed < LIMITS.MAX_PASSES && (
+                {!someoneOut && idx === 0 && st.passesUsed < maxPasses && (
                   <button
                     onClick={() => void onIssuePass(st)}
                     className="px-2 py-0.5 bg-emerald-500 hover:bg-emerald-400 text-black font-black text-[11px] rounded-md cursor-pointer"
@@ -363,7 +370,8 @@ export const HallPassesTab: React.FC<HallPassesTabProps> = ({
           </div>
         ) : (
           filteredRoster.map((st) => {
-            const isMax = st.passesUsed >= LIMITS.MAX_PASSES;
+            const passesRemaining = Math.max(0, maxPasses - st.passesUsed);
+            const isMax = passesRemaining <= 0;
             const isOut = st.outTimestamp > 0;
             const elapsedSeconds = isOut ? Math.max(0, Math.floor((nowMs - st.outTimestamp) / 1000)) : 0;
             const queueIndex = queuedIndexMap.get(st.id);
@@ -389,20 +397,20 @@ export const HallPassesTab: React.FC<HallPassesTabProps> = ({
                   </span>
                   <div className="flex items-center gap-1 shrink-0">
                     <button
-                      onClick={() => onAdjustPassCount(st, -1)}
-                      disabled={st.passesUsed <= 0}
+                      onClick={() => onAdjustPassCount(st, 1)}
+                      disabled={passesRemaining <= 0}
                       className="w-5 h-5 bg-slate-800 hover:bg-slate-700 disabled:opacity-30 text-amber-300 rounded flex items-center justify-center cursor-pointer disabled:cursor-not-allowed"
-                      title="Decrease pass count"
-                      aria-label={`Decrease pass count for ${st.name}`}
+                      title="Remove 1 pass"
+                      aria-label={`Remove 1 pass for ${st.name}`}
                     >
                       <Minus className="w-3 h-3" />
                     </button>
                     <button
-                      onClick={() => onAdjustPassCount(st, 1)}
-                      disabled={st.passesUsed >= LIMITS.MAX_PASSES}
+                      onClick={() => onAdjustPassCount(st, -1)}
+                      disabled={passesRemaining >= maxPasses}
                       className="w-5 h-5 bg-slate-800 hover:bg-slate-700 disabled:opacity-30 text-amber-300 rounded flex items-center justify-center cursor-pointer disabled:cursor-not-allowed"
-                      title="Increase pass count"
-                      aria-label={`Increase pass count for ${st.name}`}
+                      title="Restore 1 pass"
+                      aria-label={`Restore 1 pass for ${st.name}`}
                     >
                       <Plus className="w-3 h-3" />
                     </button>
@@ -410,27 +418,33 @@ export const HallPassesTab: React.FC<HallPassesTabProps> = ({
                 </div>
 
                 {/* Ticket Visuals + Counter */}
-                <div className="flex items-center justify-between border-t border-b border-slate-800/80 py-1.5 px-0.5">
-                  <div className="flex items-center gap-0.5" aria-label={`${st.passesUsed} of ${MAX_QUARTER_PASSES} passes used`}>
-                    {Array.from({ length: MAX_QUARTER_PASSES }, (_, idx) => {
-                      const used = idx + 1 <= st.passesUsed;
-                      return (
+                <div className="flex items-center justify-between border-t border-b border-slate-800/80 py-1.5 px-0.5 min-h-[30px]">
+                  <div
+                    className="flex items-center gap-0.5 flex-wrap"
+                    aria-label={`${passesRemaining} of ${maxPasses} passes remaining`}
+                  >
+                    {passesRemaining === 0 ? (
+                      <span className="text-[11px] font-semibold text-rose-400/90">
+                        No passes left
+                      </span>
+                    ) : (
+                      Array.from({ length: passesRemaining }, (_, idx) => (
                         <span
                           key={idx}
-                          className={`text-xs ${used ? 'opacity-100' : 'opacity-25 text-slate-500'}`}
-                          title={used ? 'Pass Used' : 'Pass Available'}
+                          className="text-xs"
+                          title="Pass Available"
                         >
-                          {used ? '🎟️' : '⚪'}
+                          🎟️
                         </span>
-                      );
-                    })}
+                      ))
+                    )}
                   </div>
                   <span
                     className={`text-[11px] font-black font-mono-tabular ${
                       isMax ? 'text-rose-400' : 'text-amber-300'
                     }`}
                   >
-                    {st.passesUsed}/{MAX_QUARTER_PASSES}
+                    {passesRemaining}/{maxPasses}
                   </span>
                 </div>
 
@@ -550,7 +564,7 @@ export const HallPassesTab: React.FC<HallPassesTabProps> = ({
                   <th className="py-2 pr-3 font-semibold">Student</th>
                   <th className="py-2 px-3 font-semibold">Period</th>
                   <th className="py-2 px-3 font-semibold">Action &amp; Time Out</th>
-                  <th className="py-2 px-3 font-semibold text-right">Pass Balance</th>
+                  <th className="py-2 px-3 font-semibold text-right">Passes Left</th>
                   <th className="py-2 px-3 font-semibold">Teacher</th>
                   <th className="py-2 pl-3 font-semibold text-right">Date &amp; Time</th>
                 </tr>
@@ -561,6 +575,7 @@ export const HallPassesTab: React.FC<HallPassesTabProps> = ({
                     typeof log.durationSeconds === 'number'
                       ? log.durationSeconds
                       : log.durationMinutes * 60;
+                  const passesLeftAfter = Math.max(0, maxPasses - log.passesUsedAfter);
                   return (
                     <tr key={log.id} className="hover:bg-slate-950/60">
                       <td className="py-2 pr-3 font-bold text-white whitespace-nowrap">
@@ -601,7 +616,7 @@ export const HallPassesTab: React.FC<HallPassesTabProps> = ({
                         </span>
                       </td>
                       <td className="py-2 px-3 text-right font-mono-tabular text-slate-200 whitespace-nowrap">
-                        {log.passesUsedAfter}/{MAX_QUARTER_PASSES}
+                        {passesLeftAfter}/{maxPasses}
                       </td>
                       <td className="py-2 px-3 text-slate-400 whitespace-nowrap">{log.actorEmail}</td>
                       <td className="py-2 pl-3 text-right font-mono-tabular text-slate-400 whitespace-nowrap">

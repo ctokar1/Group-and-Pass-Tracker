@@ -1,5 +1,6 @@
 import {
   collection,
+  deleteDoc,
   doc,
   getDoc,
   getDocs,
@@ -14,13 +15,17 @@ import {
 import { db, handleFirestoreError, OperationType } from './firebase';
 import {
   COLOR_DEFINITIONS,
+  DEFAULT_APP_SETTINGS,
   LIMITS,
   WORKSPACE_ID,
+  type ActiveTab,
+  type AppSettings,
   type ClassSectionDoc,
   type GroupEntry,
   type PassAction,
   type PassLogDoc,
   type StudentDoc,
+  type ThemeId,
   type WorkspaceDoc,
 } from '../types/classroom';
 
@@ -136,9 +141,40 @@ function clampText(text: string, maxLen: number): string {
   return text.trim().slice(0, maxLen);
 }
 
-function clampPassCount(count: number): number {
+function clampPassCount(count: number, maxLimit: number = LIMITS.MAX_PASSES): number {
+  const cap = Math.max(1, Math.min(LIMITS.MAX_PASSES, Math.round(maxLimit)));
   const rounded = Math.round(Number(count) || 0);
-  return Math.max(0, Math.min(LIMITS.MAX_PASSES, rounded));
+  return Math.max(0, Math.min(cap, rounded));
+}
+
+const VALID_THEMES: ThemeId[] = ['gold', 'sapphire', 'emerald', 'violet', 'crimson', 'tangerine'];
+const VALID_TABS: ActiveTab[] = ['groups', 'roster', 'settings', 'passes', 'history'];
+
+export function sanitizeWorkspaceSettings(raw?: Partial<AppSettings> | null): AppSettings {
+  const s = raw || {};
+  const theme = VALID_THEMES.includes(s.theme as ThemeId)
+    ? (s.theme as ThemeId)
+    : DEFAULT_APP_SETTINGS.theme;
+  const defaultTab = VALID_TABS.includes(s.defaultTab as ActiveTab)
+    ? (s.defaultTab as ActiveTab)
+    : DEFAULT_APP_SETTINGS.defaultTab;
+  const quickSizeNum = Math.round(Number(s.defaultQuickSize ?? DEFAULT_APP_SETTINGS.defaultQuickSize));
+  const quickCountNum = Math.round(Number(s.defaultQuickCount ?? DEFAULT_APP_SETTINGS.defaultQuickCount));
+  const timerNum = Math.round(Number(s.defaultTimerSeconds ?? DEFAULT_APP_SETTINGS.defaultTimerSeconds));
+  const alertNum = Math.round(Number(s.longPassAlertMinutes ?? DEFAULT_APP_SETTINGS.longPassAlertMinutes));
+  const maxPassNum = Math.round(Number(s.maxQuarterPasses ?? DEFAULT_APP_SETTINGS.maxQuarterPasses));
+
+  return {
+    theme,
+    defaultTab,
+    defaultQuickSize: Number.isFinite(quickSizeNum) ? Math.max(0, Math.min(12, quickSizeNum)) : DEFAULT_APP_SETTINGS.defaultQuickSize,
+    defaultQuickCount: Number.isFinite(quickCountNum) ? Math.max(0, Math.min(8, quickCountNum)) : DEFAULT_APP_SETTINGS.defaultQuickCount,
+    defaultForceExactCount: Boolean(s.defaultForceExactCount ?? DEFAULT_APP_SETTINGS.defaultForceExactCount),
+    defaultTimerSeconds: Number.isFinite(timerNum) ? Math.max(10, Math.min(59999, timerNum)) : DEFAULT_APP_SETTINGS.defaultTimerSeconds,
+    timerSoundEnabled: s.timerSoundEnabled !== undefined ? Boolean(s.timerSoundEnabled) : DEFAULT_APP_SETTINGS.timerSoundEnabled,
+    longPassAlertMinutes: Number.isFinite(alertNum) ? Math.max(1, Math.min(60, alertNum)) : DEFAULT_APP_SETTINGS.longPassAlertMinutes,
+    maxQuarterPasses: Number.isFinite(maxPassNum) ? Math.max(1, Math.min(LIMITS.MAX_PASSES, maxPassNum)) : DEFAULT_APP_SETTINGS.maxQuarterPasses,
+  };
 }
 
 function sanitizeGroups(groups: GroupEntry[]): GroupEntry[] {
@@ -472,16 +508,37 @@ export async function setActiveSection(sectionId: string, teacherEmail: string):
   }
 }
 
+export async function updateWorkspaceSettings(
+  settings: AppSettings,
+  teacherEmail: string
+): Promise<void> {
+  const email = teacherEmail.trim().toLowerCase().slice(0, LIMITS.EMAIL_MAX);
+  const clean = sanitizeWorkspaceSettings(settings);
+  try {
+    await updateDoc(doc(db, 'workspaces', WORKSPACE_ID), {
+      settings: clean,
+      updatedBy: email,
+      updatedAt: serverTimestamp(),
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, WORKSPACE_PATH);
+  }
+}
+
 export async function createSection(
   name: string,
   nextOrder: number,
-  teacherEmail: string
+  teacherEmail: string,
+  defaults?: { quickSize?: number; quickCount?: number; forceExactCount?: boolean }
 ): Promise<string> {
   const cleanName = clampText(name, LIMITS.SECTION_NAME_MAX);
   if (!cleanName) throw new Error('Section name is required.');
   const email = teacherEmail.trim().toLowerCase().slice(0, LIMITS.EMAIL_MAX);
   const sectionId = generateId('sec');
   const order = Math.max(0, Math.min(10000, Math.round(nextOrder)));
+  const quickSize = Math.max(0, Math.min(12, Math.round(defaults?.quickSize ?? 4)));
+  const quickCount = Math.max(0, Math.min(8, Math.round(defaults?.quickCount ?? 0)));
+  const forceExactCount = Boolean(defaults?.forceExactCount ?? false);
 
   try {
     const batch = writeBatch(db);
@@ -490,9 +547,9 @@ export async function createSection(
       workspaceId: WORKSPACE_ID,
       name: cleanName,
       order,
-      quickSize: 4,
-      quickCount: 0,
-      forceExactCount: false,
+      quickSize,
+      quickCount,
+      forceExactCount,
       groups: [],
       createdBy: email,
       updatedBy: email,
@@ -603,6 +660,33 @@ export async function updateSectionGroups(
   }
 }
 
+export async function applyDefaultGroupingToAllSections(
+  sections: ClassSectionDoc[],
+  defaults: { quickSize: number; quickCount: number; forceExactCount: boolean },
+  teacherEmail: string
+): Promise<void> {
+  if (sections.length === 0) return;
+  const email = teacherEmail.trim().toLowerCase().slice(0, LIMITS.EMAIL_MAX);
+  const quickSize = Math.max(0, Math.min(12, Math.round(defaults.quickSize)));
+  const quickCount = Math.max(0, Math.min(8, Math.round(defaults.quickCount)));
+  const forceExactCount = Boolean(defaults.forceExactCount);
+  try {
+    const batch = writeBatch(db);
+    sections.forEach((sec) => {
+      batch.update(doc(db, SECTIONS_PATH, sec.id), {
+        quickSize,
+        quickCount,
+        forceExactCount,
+        updatedBy: email,
+        updatedAt: serverTimestamp(),
+      });
+    });
+    await batch.commit();
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, SECTIONS_PATH);
+  }
+}
+
 export async function updateSectionPassQueue(
   sectionId: string,
   passQueue: string[],
@@ -616,6 +700,38 @@ export async function updateSectionPassQueue(
       updatedBy: email,
       updatedAt: serverTimestamp(),
     });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
+  }
+}
+
+export async function markStudentAbsentAndRemoveFromGroups(
+  sectionId: string,
+  studentId: string,
+  currentGroups: GroupEntry[],
+  teacherEmail: string
+): Promise<void> {
+  const email = teacherEmail.trim().toLowerCase().slice(0, LIMITS.EMAIL_MAX);
+  const path = `${SECTIONS_PATH}/${sectionId}/students/${studentId}`;
+  const nextGroups = sanitizeGroups(
+    currentGroups.map((g) => ({
+      ...g,
+      studentIds: g.studentIds.filter((id) => id !== studentId),
+    }))
+  );
+  try {
+    const batch = writeBatch(db);
+    batch.update(doc(db, `${SECTIONS_PATH}/${sectionId}/students`, studentId), {
+      present: false,
+      updatedBy: email,
+      updatedAt: serverTimestamp(),
+    });
+    batch.update(doc(db, SECTIONS_PATH, sectionId), {
+      groups: nextGroups,
+      updatedBy: email,
+      updatedAt: serverTimestamp(),
+    });
+    await batch.commit();
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, path);
   }
@@ -824,11 +940,13 @@ export async function issueStudentPass(
   sectionName: string,
   student: StudentDoc,
   teacherEmail: string,
-  currentPassQueue: string[] = []
+  currentPassQueue: string[] = [],
+  maxPasses: number = LIMITS.DEFAULT_MAX_PASSES
 ): Promise<void> {
-  if (student.passesUsed >= LIMITS.MAX_PASSES) return;
+  const effectiveMax = Math.max(1, Math.min(LIMITS.MAX_PASSES, Math.round(maxPasses)));
+  if (student.passesUsed >= effectiveMax) return;
   const email = teacherEmail.trim().toLowerCase().slice(0, LIMITS.EMAIL_MAX);
-  const nextCount = clampPassCount(student.passesUsed + 1);
+  const nextCount = clampPassCount(student.passesUsed + 1, effectiveMax);
   const nowMs = Date.now();
   const logId = generateId('log');
   const path = `${SECTIONS_PATH}/${sectionId}/students/${student.id}`;
@@ -922,12 +1040,14 @@ export async function adjustStudentPassCount(
   sectionName: string,
   student: StudentDoc,
   delta: number,
-  teacherEmail: string
+  teacherEmail: string,
+  maxPasses: number = LIMITS.DEFAULT_MAX_PASSES
 ): Promise<void> {
+  const effectiveMax = Math.max(1, Math.min(LIMITS.MAX_PASSES, Math.round(maxPasses)));
   const target = student.passesUsed + delta;
-  if (target < 0 || target > LIMITS.MAX_PASSES) return;
+  if (target < 0 || target > effectiveMax) return;
   const email = teacherEmail.trim().toLowerCase().slice(0, LIMITS.EMAIL_MAX);
-  const nextCount = clampPassCount(target);
+  const nextCount = clampPassCount(target, effectiveMax);
   const logId = generateId('log');
   const path = `${SECTIONS_PATH}/${sectionId}/students/${student.id}`;
 
@@ -959,6 +1079,96 @@ export async function adjustStudentPassCount(
     await batch.commit();
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, path);
+  }
+}
+
+export async function updatePassLogEntry(
+  log: PassLogDoc,
+  patch: {
+    action: PassAction;
+    passesUsedAfter: number;
+    takenAt: number;
+    returnedAt: number;
+    durationSeconds: number;
+  },
+  teacherEmail: string,
+  alsoUpdateStudent?: {
+    sectionId: string;
+    studentId: string;
+    passesUsed: number;
+    outTimestamp: number;
+  }
+): Promise<void> {
+  const email = teacherEmail.trim().toLowerCase().slice(0, LIMITS.EMAIL_MAX);
+  const path = `${PASS_LOGS_PATH}/${log.id}`;
+  const cleanSeconds = Math.max(
+    0,
+    Math.min(LIMITS.MAX_DURATION_SECONDS, Math.round(patch.durationSeconds))
+  );
+  const cleanMinutes = Math.max(
+    0,
+    Math.min(LIMITS.MAX_DURATION_MINUTES, Math.round(cleanSeconds / 60))
+  );
+  try {
+    const batch = writeBatch(db);
+    batch.update(doc(db, PASS_LOGS_PATH, log.id), {
+      action: patch.action,
+      passesUsedAfter: clampPassCount(patch.passesUsedAfter),
+      durationMinutes: cleanMinutes,
+      durationSeconds: cleanSeconds,
+      takenAt: Math.max(0, Math.round(patch.takenAt)),
+      returnedAt: Math.max(0, Math.round(patch.returnedAt)),
+      actorEmail: email,
+    });
+    if (alsoUpdateStudent) {
+      batch.update(
+        doc(
+          db,
+          `${SECTIONS_PATH}/${alsoUpdateStudent.sectionId}/students`,
+          alsoUpdateStudent.studentId
+        ),
+        {
+          passesUsed: clampPassCount(alsoUpdateStudent.passesUsed),
+          outTimestamp: Math.max(0, Math.round(alsoUpdateStudent.outTimestamp)),
+          updatedBy: email,
+          updatedAt: serverTimestamp(),
+        }
+      );
+    }
+    await batch.commit();
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
+  }
+}
+
+export async function deletePassLogEntry(logId: string): Promise<void> {
+  const path = `${PASS_LOGS_PATH}/${logId}`;
+  try {
+    await deleteDoc(doc(db, PASS_LOGS_PATH, logId));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
+  }
+}
+
+export async function clearPassLogs(sectionIdOrAll: string | 'ALL'): Promise<number> {
+  try {
+    const snap = await getDocs(
+      query(collection(db, PASS_LOGS_PATH), where('workspaceId', '==', WORKSPACE_ID))
+    );
+    const matchingDocs =
+      sectionIdOrAll === 'ALL'
+        ? snap.docs
+        : snap.docs.filter((d) => (d.data() as PassLogDoc).sectionId === sectionIdOrAll);
+
+    for (let i = 0; i < matchingDocs.length; i += 400) {
+      const chunk = matchingDocs.slice(i, i + 400);
+      const batch = writeBatch(db);
+      chunk.forEach((d) => batch.delete(d.ref));
+      await batch.commit();
+    }
+    return matchingDocs.length;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, PASS_LOGS_PATH);
   }
 }
 

@@ -12,7 +12,6 @@ import {
   X,
 } from 'lucide-react';
 import {
-  LIMITS,
   MAX_QUARTER_PASSES,
   type ClassSectionDoc,
   type StudentDoc,
@@ -24,6 +23,8 @@ interface PassMonitorBoardProps {
   sections?: ClassSectionDoc[];
   students: StudentDoc[];
   standalone?: boolean;
+  maxPasses?: number;
+  longPassAlertMinutes?: number;
   onSwitchSection?: (sectionId: string) => void;
   onAddToQueue: (studentId: string) => Promise<void>;
   onRemoveFromQueue: (studentId: string) => Promise<void>;
@@ -40,6 +41,8 @@ export const PassMonitorBoard: React.FC<PassMonitorBoardProps> = ({
   sections,
   students,
   standalone = false,
+  maxPasses = MAX_QUARTER_PASSES,
+  longPassAlertMinutes = 7,
   onSwitchSection,
   onAddToQueue,
   onRemoveFromQueue,
@@ -94,10 +97,10 @@ export const PassMonitorBoard: React.FC<PassMonitorBoardProps> = ({
           (st) =>
             st.outTimestamp <= 0 &&
             !queuedIdSet.has(st.id) &&
-            st.passesUsed < LIMITS.MAX_PASSES
+            st.passesUsed < maxPasses
         )
         .sort((a, b) => a.name.localeCompare(b.name)),
-    [students, queuedIdSet]
+    [students, queuedIdSet, maxPasses]
   );
 
   useEffect(() => {
@@ -125,7 +128,7 @@ export const PassMonitorBoard: React.FC<PassMonitorBoardProps> = ({
   const outElapsedSeconds = activeOutStudent
     ? Math.max(0, Math.floor((nowMs - activeOutStudent.outTimestamp) / 1000))
     : 0;
-  const isOverdue = outElapsedSeconds >= 420;
+  const isOverdue = outElapsedSeconds >= longPassAlertMinutes * 60;
 
   return (
     <div
@@ -301,7 +304,7 @@ export const PassMonitorBoard: React.FC<PassMonitorBoardProps> = ({
             ) : (
               eligibleToQueue.map((st) => (
                 <option key={st.id} value={st.id}>
-                  {st.name} ({st.passesUsed}/{MAX_QUARTER_PASSES} passes used)
+                  {st.name} ({Math.max(0, maxPasses - st.passesUsed)}/{maxPasses} passes left)
                 </option>
               ))
             )}
@@ -342,7 +345,7 @@ export const PassMonitorBoard: React.FC<PassMonitorBoardProps> = ({
           ) : (
             queuedStudents.map((st, idx) => {
               const isNext = idx === 0;
-              const isMax = st.passesUsed >= LIMITS.MAX_PASSES;
+              const isMax = st.passesUsed >= maxPasses;
               return (
                 <div
                   key={st.id}
@@ -368,7 +371,7 @@ export const PassMonitorBoard: React.FC<PassMonitorBoardProps> = ({
                       </span>
                       <span className="text-[11px] text-slate-400 font-mono-tabular">
                         {isNext ? 'Up Next · ' : ''}
-                        {st.passesUsed}/{MAX_QUARTER_PASSES} passes used
+                        {Math.max(0, maxPasses - st.passesUsed)}/{maxPasses} passes left
                       </span>
                     </div>
                   </div>
@@ -385,7 +388,7 @@ export const PassMonitorBoard: React.FC<PassMonitorBoardProps> = ({
                     {isMax && (
                       <span className="px-2 py-1 bg-rose-950 text-rose-400 text-[11px] font-bold rounded-lg flex items-center gap-1">
                         <Ban className="w-3 h-3" />
-                        4/4
+                        0/{maxPasses}
                       </span>
                     )}
                     {idx > 0 && (

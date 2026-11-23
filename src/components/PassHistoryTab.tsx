@@ -4,7 +4,9 @@ import {
   Clock,
   Download,
   History,
+  Pencil,
   Search,
+  Trash2,
   Users,
 } from 'lucide-react';
 import {
@@ -29,8 +31,13 @@ interface PassHistoryTabProps {
   section: ClassSectionDoc | undefined;
   students: StudentDoc[];
   passLogs: PassLogDoc[];
+  maxPasses?: number;
+  longPassAlertMinutes?: number;
   onReturnStudent: (student: StudentDoc) => Promise<void>;
   onOpenStudentHistory: (target: StudentHistoryTarget) => void;
+  onEditLog: (log: PassLogDoc) => void;
+  onDeleteLog: (log: PassLogDoc) => void;
+  onOpenClearHistory: () => void;
 }
 
 function toLocalDateKey(ms: number): string {
@@ -54,6 +61,7 @@ interface TripRow {
   actorEmail: string;
   isActive: boolean;
   activeStudent?: StudentDoc;
+  sourceLog?: PassLogDoc;
 }
 
 interface StudentSummaryRow {
@@ -76,8 +84,13 @@ export const PassHistoryTab: React.FC<PassHistoryTabProps> = ({
   section,
   students,
   passLogs,
+  maxPasses = MAX_QUARTER_PASSES,
+  longPassAlertMinutes = 7,
   onReturnStudent,
   onOpenStudentHistory,
+  onEditLog,
+  onDeleteLog,
+  onOpenClearHistory,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [periodFilter, setPeriodFilter] = useState<'current' | 'all'>('all');
@@ -136,6 +149,7 @@ export const PassHistoryTab: React.FC<PassHistoryTabProps> = ({
           passesUsedAfter: log.passesUsedAfter,
           actorEmail: log.actorEmail,
           isActive: false,
+          sourceLog: log,
         };
       });
 
@@ -293,15 +307,16 @@ export const PassHistoryTab: React.FC<PassHistoryTabProps> = ({
     let csv = '';
     if (viewMode === 'students') {
       csv =
-        'Student Name,Period,Status,Passes Used,Trips Logged,Total Time Out,Avg Time Out,Last Date Taken,Last Time Taken\n';
+        'Student Name,Period,Status,Passes Left,Trips Logged,Total Time Out,Avg Time Out,Last Date Taken,Last Time Taken\n';
       studentSummaryRows.forEach((row) => {
         const statusStr = row.isActive ? 'Currently Out' : 'In Class';
         const lastDateStr = row.lastTakenMs ? formatDateOnly(row.lastTakenMs) : '—';
         const lastTimeStr = row.lastTakenMs ? formatTimeOnly(row.lastTakenMs) : '—';
+        const passesLeft = Math.max(0, maxPasses - row.passesUsed);
         csv += `"${row.studentName.replace(/"/g, '""')}","${row.sectionName.replace(
           /"/g,
           '""'
-        )}","${statusStr}","${row.passesUsed}/${MAX_QUARTER_PASSES}",${
+        )}","${statusStr}","${passesLeft}/${maxPasses}",${
           row.tripsCount
         },"${formatDurationExact(row.totalSeconds)}","${formatDurationExact(
           row.avgSeconds
@@ -309,19 +324,20 @@ export const PassHistoryTab: React.FC<PassHistoryTabProps> = ({
       });
     } else {
       csv =
-        'Date Taken,Time Taken,Time Returned,Time Out,Status,Student Name,Period,Pass Balance,Teacher\n';
+        'Date Taken,Time Taken,Time Returned,Time Out,Status,Student Name,Period,Passes Left,Teacher\n';
       filteredTrips.forEach((row) => {
         const dateStr = formatDateOnly(row.takenMs);
         const timeTakenStr = formatTimeOnly(row.takenMs);
         const timeReturnedStr = row.returnedMs ? formatTimeOnly(row.returnedMs) : 'Still Out';
         const durStr = formatDurationExact(row.durationSeconds);
         const statusStr = row.isActive ? 'Currently Out' : 'Returned';
+        const passesLeftAfter = Math.max(0, maxPasses - row.passesUsedAfter);
         csv += `"${dateStr}","${timeTakenStr}","${timeReturnedStr}","${durStr}","${statusStr}","${row.studentName.replace(
           /"/g,
           '""'
         )}","${row.sectionName.replace(/"/g, '""')}","${
-          row.passesUsedAfter
-        }/${MAX_QUARTER_PASSES}","${row.actorEmail}"\n`;
+          passesLeftAfter
+        }/${maxPasses}","${row.actorEmail}"\n`;
       });
     }
 
@@ -381,6 +397,14 @@ export const PassHistoryTab: React.FC<PassHistoryTabProps> = ({
             >
               <Download className="w-3.5 h-3.5" />
               Export History CSV
+            </button>
+            <button
+              onClick={onOpenClearHistory}
+              disabled={passLogs.length === 0}
+              className="px-3.5 py-2 bg-rose-950/60 hover:bg-rose-900 disabled:opacity-40 text-rose-300 font-bold text-xs rounded-xl border border-rose-800/60 flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              Clear Pass History
             </button>
           </div>
         </div>
@@ -521,13 +545,13 @@ export const PassHistoryTab: React.FC<PassHistoryTabProps> = ({
                     <th className="py-2.5 px-3 font-semibold">Time Taken</th>
                     <th className="py-2.5 px-3 font-semibold">Time Returned</th>
                     <th className="py-2.5 px-3 font-semibold text-right">Time Out</th>
-                    <th className="py-2.5 px-3 font-semibold text-right">Pass #</th>
+                    <th className="py-2.5 px-3 font-semibold text-right">Passes Left</th>
                     <th className="py-2.5 pl-3 font-semibold text-right">Teacher / Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/60">
                   {filteredTrips.map((row) => {
-                    const isLong = row.durationSeconds >= 420;
+                    const isLong = row.durationSeconds >= longPassAlertMinutes * 60;
                     return (
                       <tr
                         key={row.id}
@@ -591,10 +615,10 @@ export const PassHistoryTab: React.FC<PassHistoryTabProps> = ({
                           </span>
                         </td>
                         <td className="py-3 px-3 text-right font-mono-tabular text-slate-300 whitespace-nowrap">
-                          {row.passesUsedAfter}/{MAX_QUARTER_PASSES}
+                          {Math.max(0, maxPasses - row.passesUsedAfter)}/{maxPasses}
                         </td>
                         <td className="py-3 pl-3 text-right whitespace-nowrap">
-                          <div className="inline-flex items-center gap-2">
+                          <div className="inline-flex items-center gap-1.5">
                             {row.isActive && row.activeStudent ? (
                               <button
                                 onClick={() => void onReturnStudent(row.activeStudent!)}
@@ -604,7 +628,28 @@ export const PassHistoryTab: React.FC<PassHistoryTabProps> = ({
                                 Return
                               </button>
                             ) : (
-                              <span className="text-slate-400">{row.actorEmail}</span>
+                              <span className="text-slate-400 mr-1">{row.actorEmail}</span>
+                            )}
+                            {row.sourceLog && (
+                              <>
+                                <button
+                                  onClick={() => onEditLog(row.sourceLog!)}
+                                  className="inline-flex items-center gap-1 px-2 py-1 bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold text-[11px] rounded-lg border border-slate-700 cursor-pointer"
+                                  title="Edit this pass entry"
+                                  aria-label={`Edit pass entry for ${row.studentName}`}
+                                >
+                                  <Pencil className="w-3 h-3" />
+                                  Edit
+                                </button>
+                                <button
+                                  onClick={() => onDeleteLog(row.sourceLog!)}
+                                  className="p-1 bg-slate-800 hover:bg-rose-950 text-slate-400 hover:text-rose-400 rounded-lg border border-slate-700 cursor-pointer"
+                                  title="Delete this pass entry"
+                                  aria-label={`Delete pass entry for ${row.studentName}`}
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                </button>
+                              </>
                             )}
                             <button
                               onClick={() =>
@@ -645,7 +690,7 @@ export const PassHistoryTab: React.FC<PassHistoryTabProps> = ({
                     <th className="py-2.5 pr-3 font-semibold">Student</th>
                     <th className="py-2.5 px-3 font-semibold">Period</th>
                     <th className="py-2.5 px-3 font-semibold">Status</th>
-                    <th className="py-2.5 px-3 font-semibold text-right">Passes Used</th>
+                    <th className="py-2.5 px-3 font-semibold text-right">Passes Left</th>
                     <th className="py-2.5 px-3 font-semibold text-right">Trips</th>
                     <th className="py-2.5 px-3 font-semibold text-right">Total Time Out</th>
                     <th className="py-2.5 px-3 font-semibold text-right">Avg Time Out</th>
@@ -679,7 +724,7 @@ export const PassHistoryTab: React.FC<PassHistoryTabProps> = ({
                         )}
                       </td>
                       <td className="py-3 px-3 text-right font-mono-tabular text-slate-200 whitespace-nowrap">
-                        {row.passesUsed}/{MAX_QUARTER_PASSES}
+                        {Math.max(0, maxPasses - row.passesUsed)}/{maxPasses}
                       </td>
                       <td className="py-3 px-3 text-right font-mono-tabular font-bold text-white whitespace-nowrap">
                         {row.tripsCount}
@@ -738,7 +783,7 @@ export const PassHistoryTab: React.FC<PassHistoryTabProps> = ({
                   <th className="py-2.5 px-3 font-semibold">Date</th>
                   <th className="py-2.5 px-3 font-semibold">Time</th>
                   <th className="py-2.5 px-3 font-semibold text-right">Time Out</th>
-                  <th className="py-2.5 px-3 font-semibold text-right">Pass Balance</th>
+                  <th className="py-2.5 px-3 font-semibold text-right">Passes Left</th>
                   <th className="py-2.5 pl-3 font-semibold text-right">Teacher / History</th>
                 </tr>
               </thead>
@@ -799,11 +844,27 @@ export const PassHistoryTab: React.FC<PassHistoryTabProps> = ({
                         {log.action === 'returned' ? formatDurationExact(secs) : '—'}
                       </td>
                       <td className="py-2.5 px-3 text-right font-mono-tabular text-slate-300 whitespace-nowrap">
-                        {log.passesUsedAfter}/{MAX_QUARTER_PASSES}
+                        {Math.max(0, maxPasses - log.passesUsedAfter)}/{maxPasses}
                       </td>
                       <td className="py-2.5 pl-3 text-right whitespace-nowrap">
-                        <div className="inline-flex items-center gap-2">
-                          <span className="text-slate-400">{log.actorEmail}</span>
+                        <div className="inline-flex items-center gap-1.5">
+                          <span className="text-slate-400 mr-1">{log.actorEmail}</span>
+                          <button
+                            onClick={() => onEditLog(log)}
+                            className="inline-flex items-center gap-1 px-2 py-1 bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold text-[11px] rounded-lg border border-slate-700 cursor-pointer"
+                            title="Edit event"
+                          >
+                            <Pencil className="w-3 h-3" />
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => onDeleteLog(log)}
+                            className="p-1 bg-slate-800 hover:bg-rose-950 text-slate-400 hover:text-rose-400 rounded-lg border border-slate-700 cursor-pointer"
+                            title="Delete event"
+                            aria-label="Delete event"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
                           <button
                             onClick={() =>
                               openStudentById(
