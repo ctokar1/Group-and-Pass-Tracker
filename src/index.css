@@ -1,0 +1,78 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  body {
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  }
+
+  .font-mono-tabular {
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #0f172a;
+}
+::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #475569;
+}
+
+/* Spotlight Glow Animation */
+@keyframes goldGlow {
+  0%, 100% {
+    box-shadow: 0 0 15px rgba(251, 191, 36, 0.35);
+    border-color: rgba(251, 191, 36, 0.8);
+  }
+  50% {
+    box-shadow: 0 0 32px rgba(251, 191, 36, 0.85);
+    border-color: rgba(255, 255, 255, 1);
+  }
+}
+
+.spotlight-winner {
+  animation: goldGlow 1.5s infinite ease-in-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spotlight-winner {
+    animation: none;
+  }
+}
+
+/* Print Styles */
+@media print {
+  body {
+    background: white !important;
+    color: black !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .print-grid {
+    display: grid !important;
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 1rem !important;
+  }
+  .print-card {
+    border: 2px solid #000 !important;
+    background: #fff !important;
+    color: #000 !important;
+    break-inside: avoid;
+  }
+}

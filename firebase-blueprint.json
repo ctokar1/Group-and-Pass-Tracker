@@ -1,0 +1,322 @@
+{
+  "entities": {
+    "Workspace": {
+      "title": "Workspace",
+      "description": "Shared CHUH classroom workspace metadata tracking the active class period.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Workspace identifier (chuh_shared).",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "activeSectionId": {
+          "type": "string",
+          "description": "Currently selected class period section ID.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "createdBy": {
+          "type": "string",
+          "description": "Verified teacher email who initialized the workspace.",
+          "minLength": 3,
+          "maxLength": 256
+        },
+        "updatedBy": {
+          "type": "string",
+          "description": "Verified teacher email who last updated the workspace.",
+          "minLength": 3,
+          "maxLength": 256
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server last update timestamp."
+        }
+      },
+      "required": ["id", "activeSectionId", "createdBy", "updatedBy", "createdAt", "updatedAt"]
+    },
+    "ClassSection": {
+      "title": "ClassSection",
+      "description": "A class period containing group rules, station assignments, and a student subcollection.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Section identifier.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "workspaceId": {
+          "type": "string",
+          "description": "Parent workspace identifier.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "name": {
+          "type": "string",
+          "description": "Display name of the class period.",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "order": {
+          "type": "number",
+          "description": "Sort order index of the class period."
+        },
+        "quickSize": {
+          "type": "number",
+          "description": "Target student count per group (0 or 2-6)."
+        },
+        "quickCount": {
+          "type": "number",
+          "description": "Target total group count (0 or 2-8)."
+        },
+        "forceExactCount": {
+          "type": "boolean",
+          "description": "Whether to strictly cap station tables to quickCount."
+        },
+        "groups": {
+          "type": "array",
+          "description": "Bounded list of up to 8 color table station assignments."
+        },
+        "createdBy": {
+          "type": "string",
+          "description": "Verified teacher email who created this section.",
+          "minLength": 3,
+          "maxLength": 256
+        },
+        "updatedBy": {
+          "type": "string",
+          "description": "Verified teacher email who last updated this section.",
+          "minLength": 3,
+          "maxLength": 256
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server last update timestamp."
+        }
+      },
+      "required": [
+        "id",
+        "workspaceId",
+        "name",
+        "order",
+        "quickSize",
+        "quickCount",
+        "forceExactCount",
+        "groups",
+        "createdBy",
+        "updatedBy",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Student": {
+      "title": "Student",
+      "description": "A student in a class period with attendance state and quarter hall pass tracking.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Student identifier.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "workspaceId": {
+          "type": "string",
+          "description": "Parent workspace identifier.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "sectionId": {
+          "type": "string",
+          "description": "Parent section identifier.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "name": {
+          "type": "string",
+          "description": "Student full name.",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "present": {
+          "type": "boolean",
+          "description": "Whether the student is marked present for grouping."
+        },
+        "passesUsed": {
+          "type": "number",
+          "description": "Number of quarter bathroom passes used (0-4)."
+        },
+        "outTimestamp": {
+          "type": "number",
+          "description": "Epoch milliseconds when student left room, or 0 when in class."
+        },
+        "createdBy": {
+          "type": "string",
+          "description": "Verified teacher email who added the student.",
+          "minLength": 3,
+          "maxLength": 256
+        },
+        "updatedBy": {
+          "type": "string",
+          "description": "Verified teacher email who last updated the student.",
+          "minLength": 3,
+          "maxLength": 256
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server last update timestamp."
+        }
+      },
+      "required": [
+        "id",
+        "workspaceId",
+        "sectionId",
+        "name",
+        "present",
+        "passesUsed",
+        "outTimestamp",
+        "createdBy",
+        "updatedBy",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "PassLog": {
+      "title": "PassLog",
+      "description": "Immutable audit event when a hall pass is issued, returned, adjusted, or reset.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Log entry identifier.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "workspaceId": {
+          "type": "string",
+          "description": "Parent workspace identifier.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "sectionId": {
+          "type": "string",
+          "description": "Section identifier.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "sectionName": {
+          "type": "string",
+          "description": "Section display name at time of event.",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "studentId": {
+          "type": "string",
+          "description": "Student identifier (or 'ALL' for quarter reset).",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "studentName": {
+          "type": "string",
+          "description": "Student display name at time of event.",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "action": {
+          "type": "string",
+          "description": "Pass event type.",
+          "enum": ["issued", "returned", "adjusted", "reset"]
+        },
+        "passesUsedAfter": {
+          "type": "number",
+          "description": "Student's pass count after this action (0-4)."
+        },
+        "durationMinutes": {
+          "type": "number",
+          "description": "Elapsed minutes out when returned (0 otherwise)."
+        },
+        "actorEmail": {
+          "type": "string",
+          "description": "Verified teacher email who performed the action.",
+          "minLength": 3,
+          "maxLength": 256
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of the event."
+        }
+      },
+      "required": [
+        "id",
+        "workspaceId",
+        "sectionId",
+        "sectionName",
+        "studentId",
+        "studentName",
+        "action",
+        "passesUsedAfter",
+        "durationMinutes",
+        "actorEmail",
+        "createdAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/workspaces/{workspaceId}": {
+      "schema": {
+        "$ref": "#/entities/Workspace"
+      },
+      "description": "Shared classroom workspace document for authorized CHUH teachers."
+    },
+    "/workspaces/{workspaceId}/sections/{sectionId}": {
+      "schema": {
+        "$ref": "#/entities/ClassSection"
+      },
+      "description": "Class period sections belonging to the shared CHUH workspace."
+    },
+    "/workspaces/{workspaceId}/sections/{sectionId}/students/{studentId}": {
+      "schema": {
+        "$ref": "#/entities/Student"
+      },
+      "description": "Individual student records with attendance and hall pass counters."
+    },
+    "/workspaces/{workspaceId}/passLogs/{logId}": {
+      "schema": {
+        "$ref": "#/entities/PassLog"
+      },
+      "description": "Append-only hall pass activity log for live classroom accountability."
+    }
+  }
+}

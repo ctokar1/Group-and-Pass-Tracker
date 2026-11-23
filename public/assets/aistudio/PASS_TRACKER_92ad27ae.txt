@@ -1,0 +1,1950 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tiger GroupCraft - CHUH Heights High</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        tiger: {
+                            50: '#fffbeb',
+                            100: '#fef3c7',
+                            400: '#fbbf24',
+                            500: '#f59e0b',
+                            600: '#d97706',
+                            900: '#78350f',
+                            950: '#451a03'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            user-select: none;
+        }
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #0f172a;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #334155;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #475569;
+        }
+        /* Spotlight Glow Animation */
+        @keyframes goldGlow {
+            0%, 100% { box-shadow: 0 0 15px rgba(251, 191, 36, 0.4); border-color: rgba(251, 191, 36, 0.8); }
+            50% { box-shadow: 0 0 35px rgba(251, 191, 36, 0.9); border-color: rgba(255, 255, 255, 1); }
+        }
+        .spotlight-winner {
+            animation: goldGlow 1.5s infinite ease-in-out;
+        }
+        /* Print Styles */
+        @media print {
+            body { background: white !important; color: black !important; }
+            .no-print { display: none !important; }
+            .print-grid { display: grid !important; grid-template-columns: repeat(2, 1fr) !important; gap: 1rem !important; }
+            .print-card { border: 2px solid #000 !important; background: #fff !important; color: #000 !important; break-inside: avoid; }
+        }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col antialiased selection:bg-amber-400 selection:text-black">
+
+    <!-- TOP APPLICATION HEADER -->
+    <header class="no-print bg-slate-900 border-b border-slate-800 sticky top-0 z-30 shadow-lg">
+        <div class="max-w-7xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+            
+            <!-- Brand Logo -->
+            <div class="flex items-center space-x-3">
+                <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-amber-600 via-amber-400 to-yellow-300 flex items-center justify-center shadow-md shadow-amber-500/20 text-black font-black text-xl">
+                    🐾
+                </div>
+                <div>
+                    <h1 class="font-extrabold text-lg sm:text-xl text-white tracking-tight leading-none flex items-center gap-2">
+                        Tiger GroupCraft
+                        <span class="text-[10px] font-bold uppercase tracking-wider bg-amber-400/10 text-amber-300 border border-amber-400/30 px-2 py-0.5 rounded-full">CHUH Heights High</span>
+                    </h1>
+                    <p class="text-xs text-slate-400 font-medium mt-0.5">Classroom Seating & Station Generator</p>
+                </div>
+            </div>
+
+            <!-- Class Section Switcher Dropdown -->
+            <div class="flex items-center bg-slate-950 border border-slate-800 rounded-xl p-1 shadow-inner">
+                <span class="text-xs font-bold text-slate-400 px-2.5">Period:</span>
+                <select id="headerSectionSelect" onchange="window.switchSection(this.value)" class="bg-slate-900 text-amber-300 text-xs sm:text-sm font-extrabold rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-amber-400 border border-slate-700">
+                    <!-- Populated dynamically -->
+                </select>
+                <button onclick="window.openAddSectionModal()" class="ml-1 p-1.5 bg-slate-800 hover:bg-slate-700 text-amber-400 rounded-lg text-xs font-bold transition-all" title="Add New Class Period">
+                    ➕
+                </button>
+            </div>
+
+            <!-- Header Action Controls -->
+            <div class="flex items-center gap-2">
+                <div id="storageStatusBadge" class="text-[10px] font-bold text-emerald-400 bg-emerald-950/60 border border-emerald-500/30 px-2 py-0.5 rounded-full flex items-center gap-1.5" title="All rosters and bathroom passes are auto-saved to browser storage & IndexedDB database">
+                    <span class="w-2 h-2 rounded-full bg-emerald-400 inline-block animate-pulse"></span> <span>Auto-Saved</span>
+                </div>
+                <button onclick="window.toggleProjectorMode()" class="px-3.5 py-2 bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-400 hover:to-yellow-300 text-black font-extrabold text-xs sm:text-sm rounded-xl shadow-lg shadow-amber-500/20 flex items-center gap-1.5 transition-all transform active:scale-95">
+                    <span>🖥️</span> Projector View
+                </button>
+                <button onclick="window.startSpotlight()" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-amber-300 font-bold text-xs sm:text-sm rounded-xl flex items-center gap-1.5 transition-all">
+                    <span>🎯</span> Spotlight
+                </button>
+                <button onclick="window.copyEmbedLink()" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-bold text-xs sm:text-sm rounded-xl flex items-center gap-1.5 transition-all" title="Copy embed link for Lumio, Google Slides, or Canvas">
+                    <span>🔗</span> Lumio Link
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- MAIN NAVIGATION TABS -->
+    <nav class="no-print bg-slate-900/80 backdrop-blur-md border-b border-slate-800 sticky top-[65px] z-20">
+        <div class="max-w-7xl mx-auto px-4 flex items-center space-x-1 sm:space-x-2 overflow-x-auto py-2">
+            <button id="nav-tab-groups" onclick="window.switchTab('groups')" class="tab-btn active px-4 py-2 rounded-xl font-bold text-xs sm:text-sm flex items-center gap-2 transition-all bg-amber-400 text-black shadow">
+                <span>🎨</span> Color Groups
+            </button>
+            <button id="nav-tab-roster" onclick="window.switchTab('roster')" class="tab-btn px-4 py-2 rounded-xl font-bold text-xs sm:text-sm text-slate-400 hover:text-white hover:bg-slate-800 flex items-center gap-2 transition-all">
+                <span>📋</span> Class Roster
+            </button>
+            <button id="nav-tab-settings" onclick="window.switchTab('settings')" class="tab-btn px-4 py-2 rounded-xl font-bold text-xs sm:text-sm text-slate-400 hover:text-white hover:bg-slate-800 flex items-center gap-2 transition-all">
+                <span>⚙️</span> Group Rules & Sections
+            </button>
+            <button id="nav-tab-passes" onclick="window.switchTab('passes')" class="tab-btn px-4 py-2 rounded-xl font-bold text-xs sm:text-sm text-slate-400 hover:text-white hover:bg-slate-800 flex items-center gap-2 transition-all">
+                <span>🚽</span> Hall Passes
+            </button>
+        </div>
+    </nav>
+
+    <!-- MAIN BODY CONTAINER -->
+    <main class="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 space-y-6">
+
+        <!-- ==================== TAB 1: COLOR GROUPS ==================== -->
+        <section id="tab-content-groups" class="space-y-6">
+            
+            <!-- Quick Rules & Controls Bar -->
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-4 shadow-xl">
+                <div class="flex items-center gap-3">
+                    <div class="bg-slate-950 px-3 py-1.5 rounded-xl border border-slate-800 flex items-center gap-2">
+                        <span class="text-xs text-slate-400 font-semibold">Active Roster:</span>
+                        <span id="activeRosterCountBadge" class="text-xs font-extrabold text-amber-300">0 Present</span>
+                    </div>
+                    <div class="bg-slate-950 px-3 py-1.5 rounded-xl border border-slate-800 flex items-center gap-2">
+                        <span class="text-xs text-slate-400 font-semibold">Selected Rule:</span>
+                        <span id="activeRuleBadge" class="text-xs font-extrabold text-amber-400">4 Students / Group</span>
+                    </div>
+                </div>
+
+                <div class="flex items-center gap-2">
+                    <button onclick="window.triggerGroupGeneration()" class="px-5 py-2.5 bg-amber-400 hover:bg-amber-300 text-black font-black text-sm rounded-xl shadow-lg shadow-amber-400/20 flex items-center gap-2 transition-all transform active:scale-95">
+                        <span>🎲</span> Shuffle & Group Now!
+                    </button>
+                    <button onclick="window.copyGroupsToClipboard()" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs rounded-xl border border-slate-700" title="Copy text format">
+                        📋 Copy Text
+                    </button>
+                    <button onclick="window.exportGroupsCSV()" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs rounded-xl border border-slate-700" title="Export CSV file">
+                        📥 CSV
+                    </button>
+                    <button onclick="window.printGroups()" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs rounded-xl border border-slate-700" title="Print groups layout">
+                        🖨️ Print
+                    </button>
+                </div>
+            </div>
+
+            <!-- Groups Render Container Grid -->
+            <div id="groupsDisplayContainer" class="print-grid grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
+                <!-- Color Group Cards populated via JS -->
+            </div>
+        </section>
+
+
+        <!-- ==================== TAB 2: CLASS ROSTER ==================== -->
+        <section id="tab-content-roster" class="hidden space-y-6">
+            
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                
+                <!-- Roster Stats & Add Form -->
+                <div class="space-y-6 md:col-span-1">
+                    <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4 shadow-xl">
+                        <h2 class="font-extrabold text-base text-white flex items-center gap-2">
+                            <span>➕</span> Add Student to Roster
+                        </h2>
+                        <form onsubmit="window.handleAddStudentSubmit(event)" class="space-y-3">
+                            <input type="text" id="newStudentNameInput" placeholder="First Last Name..." class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-sm font-semibold text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-400">
+                            <button type="submit" class="w-full py-2.5 bg-amber-400 hover:bg-amber-300 text-black font-extrabold text-sm rounded-xl shadow transition-all">
+                                Add Student
+                            </button>
+                        </form>
+                    </div>
+
+                    <!-- Bulk Import Box -->
+                    <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3 shadow-xl">
+                        <h2 class="font-extrabold text-base text-white flex items-center gap-2">
+                            <span>📝</span> Bulk Import Roster
+                        </h2>
+                        <p class="text-xs text-slate-400 font-medium">Paste student names (one per line):</p>
+                        <textarea id="bulkImportTextarea" rows="5" placeholder="Jordan Carter&#10;Taylor Smith&#10;Morgan Vance&#10;Riley Davis" class="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs font-mono text-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-400"></textarea>
+                        <button onclick="window.executeBulkImport()" class="w-full py-2 bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold text-xs rounded-xl border border-slate-700 transition-all">
+                            Import Roster List
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Roster List View -->
+                <div class="md:col-span-2 bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4 shadow-xl flex flex-col">
+                    <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-4">
+                        <div>
+                            <h2 class="font-extrabold text-lg text-white">Active Roster</h2>
+                            <p class="text-xs text-slate-400">Check/uncheck students to mark present or absent.</p>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <button onclick="window.markAllAttendance(true)" class="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-emerald-400 text-xs font-extrabold rounded-lg border border-slate-700">
+                                Mark All Present
+                            </button>
+                            <button onclick="window.markAllAttendance(false)" class="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-rose-400 text-xs font-extrabold rounded-lg border border-slate-700">
+                                Mark All Absent
+                            </button>
+                        </div>
+                    </div>
+
+                    <div id="rosterListContainer" class="divide-y divide-slate-800/60 flex-1 overflow-y-auto max-h-[500px] pr-2">
+                        <!-- Populated dynamically -->
+                    </div>
+                </div>
+            </div>
+        </section>
+
+
+        <!-- ==================== TAB 3: GROUP RULES & SECTIONS ==================== -->
+        <section id="tab-content-settings" class="hidden space-y-6">
+            
+            <!-- Quick Grouping Presets Card -->
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6 shadow-xl">
+                <div class="border-b border-slate-800 pb-4">
+                    <h2 class="font-black text-xl text-white flex items-center gap-2">
+                        <span>⚡</span> Group Rules & Presets
+                    </h2>
+                    <p class="text-xs text-slate-400 mt-1">
+                        Choose your group size and total group count. Select both at the same time to enforce group size inside exact station counts!
+                    </p>
+                </div>
+
+                <!-- Quick Preset Selectors -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    
+                    <!-- Quick Size Presets -->
+                    <div class="space-y-3 bg-slate-950 p-4 rounded-xl border border-slate-800">
+                        <label class="text-xs font-extrabold uppercase tracking-wider text-amber-300 block">
+                            👥 Quick Student Group Size
+                        </label>
+                        <div class="grid grid-cols-3 sm:grid-cols-5 gap-2">
+                            <button id="preset-size-2" onclick="window.selectQuickSize(2)" class="btn-preset-size py-2.5 px-3 bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs rounded-xl border border-slate-700 transition-all">
+                                Pairs (2)
+                            </button>
+                            <button id="preset-size-3" onclick="window.selectQuickSize(3)" class="btn-preset-size py-2.5 px-3 bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs rounded-xl border border-slate-700 transition-all">
+                                Trios (3)
+                            </button>
+                            <button id="preset-size-4" onclick="window.selectQuickSize(4)" class="btn-preset-size py-2.5 px-3 bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs rounded-xl border border-slate-700 transition-all">
+                                Group of 4
+                            </button>
+                            <button id="preset-size-5" onclick="window.selectQuickSize(5)" class="btn-preset-size py-2.5 px-3 bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs rounded-xl border border-slate-700 transition-all">
+                                Group of 5
+                            </button>
+                            <button id="preset-size-6" onclick="window.selectQuickSize(6)" class="btn-preset-size py-2.5 px-3 bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs rounded-xl border border-slate-700 transition-all">
+                                Group of 6
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Quick Group Count Presets -->
+                    <div class="space-y-3 bg-slate-950 p-4 rounded-xl border border-slate-800">
+                        <label class="text-xs font-extrabold uppercase tracking-wider text-amber-300 block">
+                            🎯 Quick Total Group Count
+                        </label>
+                        <div class="grid grid-cols-3 sm:grid-cols-6 gap-2">
+                            <button id="preset-count-2" onclick="window.selectQuickCount(2)" class="btn-preset-count py-2.5 px-2 bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs rounded-xl border border-slate-700 transition-all">
+                                2 Groups
+                            </button>
+                            <button id="preset-count-3" onclick="window.selectQuickCount(3)" class="btn-preset-count py-2.5 px-2 bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs rounded-xl border border-slate-700 transition-all">
+                                3 Groups
+                            </button>
+                            <button id="preset-count-4" onclick="window.selectQuickCount(4)" class="btn-preset-count py-2.5 px-2 bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs rounded-xl border border-slate-700 transition-all">
+                                4 Groups
+                            </button>
+                            <button id="preset-count-5" onclick="window.selectQuickCount(5)" class="btn-preset-count py-2.5 px-2 bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs rounded-xl border border-slate-700 transition-all">
+                                5 Groups
+                            </button>
+                            <button id="preset-count-6" onclick="window.selectQuickCount(6)" class="btn-preset-count py-2.5 px-2 bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs rounded-xl border border-slate-700 transition-all">
+                                6 Groups
+                            </button>
+                            <button id="preset-count-8" onclick="window.selectQuickCount(8)" class="btn-preset-count py-2.5 px-2 bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs rounded-xl border border-slate-700 transition-all">
+                                8 Groups
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Toggle Options & Active Rule Summary -->
+                <div class="flex flex-wrap items-center justify-between gap-4 bg-slate-950/80 p-4 rounded-xl border border-slate-800">
+                    <div class="flex items-center space-x-3">
+                        <input type="checkbox" id="forceExactGroupToggle" onchange="window.toggleForceCount(this.checked)" class="w-5 h-5 rounded border-slate-700 bg-slate-900 text-amber-400 focus:ring-amber-400 focus:ring-offset-slate-900 cursor-pointer">
+                        <label for="forceExactGroupToggle" class="text-xs sm:text-sm font-extrabold text-slate-200 cursor-pointer">
+                            🔒 Force Exact Group Count (Strictly cap tables to selected group count)
+                        </label>
+                    </div>
+
+                    <button onclick="window.triggerGroupGeneration()" class="px-6 py-3 bg-amber-400 hover:bg-amber-300 text-black font-black text-sm rounded-xl shadow-lg shadow-amber-400/20 transition-all">
+                        🎲 Generate Color Groups
+                    </button>
+                </div>
+            </div>
+
+            <!-- Section & Data Management Row -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <!-- Class Period Management -->
+                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4 shadow-xl">
+                    <h2 class="font-extrabold text-base text-white flex items-center gap-2">
+                        <span>🏫</span> Section Period Management
+                    </h2>
+                    <div class="space-y-3">
+                        <div class="flex items-center gap-2">
+                            <input type="text" id="renameSectionInput" placeholder="Section Name..." class="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs font-bold text-white">
+                            <button onclick="window.renameActiveSection()" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold text-xs rounded-xl border border-slate-700">
+                                Rename
+                            </button>
+                        </div>
+                        <button onclick="window.deleteActiveSection()" class="w-full py-2 bg-rose-950/50 hover:bg-rose-900/60 text-rose-300 font-bold text-xs rounded-xl border border-rose-800/40 transition-all">
+                            🗑️ Delete Current Section
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Backup & Restore Data -->
+                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4 shadow-xl">
+                    <h2 class="font-extrabold text-base text-white flex items-center gap-2">
+                        <span>💾</span> Local Data Backup & Sync
+                    </h2>
+                    <p class="text-xs text-slate-400">
+                        All rosters and bathroom passes auto-save locally in your browser. Export a backup JSON file to transfer data to another computer or Google Drive.
+                    </p>
+                    <div class="flex gap-2">
+                        <button onclick="window.exportDataBackup()" class="flex-1 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs rounded-xl border border-slate-700">
+                            📥 Export Backup
+                        </button>
+                        <label class="flex-1 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs rounded-xl border border-slate-700 text-center cursor-pointer">
+                            📤 Restore Backup
+                            <input type="file" accept=".json" onchange="window.importDataBackup(event)" class="hidden">
+                        </label>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+
+        <!-- ==================== TAB 4: HALL PASS TRACKER ==================== -->
+        <section id="tab-content-passes" class="hidden space-y-6">
+            
+            <!-- Hall Pass Control Bar -->
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-4 shadow-xl">
+                <div>
+                    <h2 class="font-black text-lg text-white flex items-center gap-2">
+                        <span>🚽</span> Quarter Bathroom Pass Tracker
+                    </h2>
+                    <p class="text-xs text-slate-400">Students are allowed 4 passes per quarter. Tiles lock automatically at 4/4.</p>
+                </div>
+
+                <div class="flex items-center gap-3">
+                    <input type="text" id="passSearchInput" oninput="window.renderPasses()" placeholder="🔍 Search student name..." class="bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-400">
+                    <button onclick="window.openResetPassesModal()" class="px-3 py-2 bg-rose-950/60 hover:bg-rose-900 text-rose-300 border border-rose-800/60 font-extrabold text-xs rounded-xl transition-all">
+                        🔄 Reset All for Quarter
+                    </button>
+                </div>
+            </div>
+
+            <!-- Currently Out Live Banner -->
+            <div id="currentlyOutBanner" class="hidden bg-amber-950/40 border-2 border-amber-500/80 rounded-2xl p-4 space-y-3 shadow-2xl">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center space-x-2">
+                        <span class="relative flex h-3 w-3">
+                            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                            <span class="relative inline-flex rounded-full h-3 w-3 bg-amber-500"></span>
+                        </span>
+                        <h3 class="font-black text-sm text-amber-300 uppercase tracking-wide">Students Currently Out of Room</h3>
+                    </div>
+                    <span id="currentlyOutCountBadge" class="px-2.5 py-0.5 bg-amber-400 text-black font-black text-xs rounded-full">
+                        0 Out
+                    </span>
+                </div>
+                <div id="currentlyOutList" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                    <!-- Dynamic live out list -->
+                </div>
+            </div>
+
+            <!-- Alphabetical Pass Grid (Compact Sizing) -->
+            <div id="passTrackerGrid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
+                <!-- Populated dynamically via JS -->
+            </div>
+        </section>
+
+    </main>
+
+
+    <!-- ==================== PROJECTOR / PRESENTATION OVERLAY ==================== -->
+    <div id="projectorOverlay" class="hidden fixed inset-0 z-50 bg-slate-950 text-white flex flex-col p-2.5 sm:p-4 overflow-hidden">
+        
+        <!-- Projector Header Controls -->
+        <div class="no-print bg-slate-900/90 border border-slate-800 rounded-2xl px-4 py-2 sm:py-2.5 mb-2 sm:mb-3 flex flex-wrap items-center justify-between gap-3 shadow-2xl shrink-0">
+            
+            <div class="flex items-center space-x-3">
+                <span class="text-xl">🐾</span>
+                <div>
+                    <h2 id="projectorSectionTitle" class="font-extrabold text-lg text-white leading-none">Period 1 - Heights Tigers</h2>
+                    <p id="projectorRuleSubtitle" class="text-xs text-amber-400 font-bold mt-1">4 Students / Group</p>
+                </div>
+            </div>
+
+            <!-- Classroom Timer Display & Controls (Toggleable Container) -->
+            <div id="projectorTimerContainer" class="hidden flex items-center bg-slate-950 border border-slate-800 rounded-xl px-4 py-1.5 space-x-3 shadow-inner">
+                <span id="projectorTimerClock" class="font-black text-2xl text-amber-400 font-mono tracking-wider">05:00</span>
+                <div class="flex items-center space-x-1">
+                    <button onclick="window.toggleTimer()" id="timerPlayBtn" class="p-1.5 bg-slate-800 hover:bg-slate-700 text-amber-300 rounded-lg text-xs font-bold" title="Start/Pause Timer">
+                        ▶️
+                    </button>
+                    <button onclick="window.resetTimer()" class="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-bold" title="Reset Timer">
+                        🔄
+                    </button>
+                    <button onclick="window.addTimerMinutes(1)" class="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-amber-300 rounded-lg text-xs font-bold" title="Add 1 Minute">
+                        +1m
+                    </button>
+                    <button onclick="window.addTimerMinutes(5)" class="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-amber-300 rounded-lg text-xs font-bold" title="Add 5 Minutes">
+                        +5m
+                    </button>
+                    <button onclick="window.toggleTimerWidget()" class="p-1 text-slate-500 hover:text-slate-300 text-xs font-bold ml-1" title="Close Timer">
+                        ✕
+                    </button>
+                </div>
+            </div>
+
+            <!-- Projector Toolbar -->
+            <div class="flex items-center gap-2">
+                <button id="projectorTimerToggleBtn" onclick="window.toggleTimerWidget()" class="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-extrabold text-xs sm:text-sm rounded-xl border border-slate-700 flex items-center gap-1.5">
+                    <span>⏱️</span> Timer
+                </button>
+                <button onclick="window.startSpotlight()" class="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-amber-300 font-extrabold text-xs sm:text-sm rounded-xl border border-slate-700 flex items-center gap-1.5 transition-all">
+                    <span>🎯</span> Spotlight
+                </button>
+                <button onclick="window.triggerGroupGeneration()" class="px-3.5 py-2 bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-400 hover:to-yellow-300 text-black font-extrabold text-xs sm:text-sm rounded-xl shadow flex items-center gap-1.5 transition-all transform active:scale-95" title="Reshuffle color groups using current rules">
+                    <span>🎲</span> Reshuffle
+                </button>
+                <button onclick="window.openProjectorGroupingModal()" class="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-extrabold text-xs sm:text-sm rounded-xl border border-slate-700 flex items-center gap-1.5">
+                    <span>⚙️</span> Group Rules
+                </button>
+                <button onclick="window.toggleProjectorMode()" class="px-3 py-2 bg-rose-900/60 hover:bg-rose-800 text-rose-200 font-extrabold text-xs sm:text-sm rounded-xl border border-rose-700 flex items-center gap-1">
+                    <span>❌</span> Exit
+                </button>
+            </div>
+        </div>
+
+        <!-- Spotlight Winner Announcement Banner -->
+        <div id="projectorSpotlightBanner" class="hidden bg-gradient-to-r from-amber-500 via-amber-400 to-yellow-300 text-black font-black text-xl sm:text-2xl py-2 px-4 rounded-xl shadow-2xl mb-2 text-center transform animate-bounce shrink-0">
+            <!-- Dynamic winner announcement -->
+        </div>
+
+        <!-- Scrollbar-Free High-Visibility Groups Grid -->
+        <div id="projectorGroupsGrid" class="flex-1 grid gap-2.5 sm:gap-3.5 min-h-0 overflow-hidden">
+            <!-- Dynamic high-visibility projector cards -->
+        </div>
+    </div>
+
+
+    <!-- ==================== MODALS & DIALOGS ==================== -->
+
+    <!-- 1. Tiger Spotlight Picker Modal -->
+    <div id="randomPickerModal" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+        <div class="bg-slate-900 border border-amber-500/50 rounded-3xl max-w-lg w-full p-6 space-y-6 shadow-2xl text-center">
+            <div class="w-16 h-16 bg-amber-400 text-black rounded-2xl mx-auto flex items-center justify-center text-3xl font-black shadow-lg shadow-amber-400/20">
+                🎯
+            </div>
+            <div>
+                <h3 class="font-black text-2xl text-white">Tiger Student Spotlight</h3>
+                <p class="text-xs text-slate-400 mt-1">Randomly selecting a student from active color groups...</p>
+            </div>
+            
+            <div id="spotlightDisplayBox" class="bg-slate-950 border-2 border-amber-400/80 rounded-2xl py-8 px-4 shadow-inner">
+                <span id="spotlightNameDisplay" class="font-black text-3xl sm:text-4xl text-amber-300 block tracking-tight">
+                    Ready?
+                </span>
+                <span id="spotlightGroupDisplay" class="text-sm font-bold text-slate-400 block mt-2">
+                    Click Pick Student below
+                </span>
+            </div>
+
+            <div class="flex items-center gap-3">
+                <button onclick="window.executeSpotlightPick()" class="flex-1 py-3 bg-amber-400 hover:bg-amber-300 text-black font-black text-base rounded-xl shadow-lg transition-all">
+                    🎲 Pick Random Student
+                </button>
+                <button onclick="window.closeSpotlightModal()" class="px-5 py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-sm rounded-xl border border-slate-700">
+                    Close
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 2. Presenter Quick Grouping Rules Modal -->
+    <div id="projectorGroupingModal" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+        <div class="bg-slate-900 border border-slate-800 rounded-3xl max-w-xl w-full p-6 space-y-6 shadow-2xl">
+            <div class="flex items-center justify-between border-b border-slate-800 pb-4">
+                <div>
+                    <h3 class="font-black text-xl text-white flex items-center gap-2">
+                        <span>🎲</span> Quick Group Rules (Presentation View)
+                    </h3>
+                    <p class="text-xs text-amber-400 font-extrabold mt-1">Active Rule: <span id="projModalRuleBadge">4 Students / Group</span></p>
+                </div>
+                <button onclick="window.closeProjectorGroupingModal()" class="text-slate-400 hover:text-white font-bold text-lg">✕</button>
+            </div>
+
+            <!-- Dual Quick Presets in Presenter View -->
+            <div class="space-y-4">
+                <div class="space-y-2">
+                    <label class="text-xs font-extrabold uppercase text-amber-300">👥 Quick Student Group Size</label>
+                    <div class="grid grid-cols-5 gap-2">
+                        <button id="proj-preset-size-2" onclick="window.selectQuickSize(2)" class="py-2 bg-slate-800 hover:bg-slate-700 text-xs font-bold text-white rounded-xl border border-slate-700 transition-all">Pairs (2)</button>
+                        <button id="proj-preset-size-3" onclick="window.selectQuickSize(3)" class="py-2 bg-slate-800 hover:bg-slate-700 text-xs font-bold text-white rounded-xl border border-slate-700 transition-all">Trios (3)</button>
+                        <button id="proj-preset-size-4" onclick="window.selectQuickSize(4)" class="py-2 bg-slate-800 hover:bg-slate-700 text-xs font-bold text-white rounded-xl border border-slate-700 transition-all">Group of 4</button>
+                        <button id="proj-preset-size-5" onclick="window.selectQuickSize(5)" class="py-2 bg-slate-800 hover:bg-slate-700 text-xs font-bold text-white rounded-xl border border-slate-700 transition-all">Group of 5</button>
+                        <button id="proj-preset-size-6" onclick="window.selectQuickSize(6)" class="py-2 bg-slate-800 hover:bg-slate-700 text-xs font-bold text-white rounded-xl border border-slate-700 transition-all">Group of 6</button>
+                    </div>
+                </div>
+
+                <div class="space-y-2">
+                    <label class="text-xs font-extrabold uppercase text-amber-300">🎯 Quick Total Group Count</label>
+                    <div class="grid grid-cols-6 gap-2">
+                        <button id="proj-preset-count-2" onclick="window.selectQuickCount(2)" class="py-2 bg-slate-800 hover:bg-slate-700 text-xs font-bold text-white rounded-xl border border-slate-700 transition-all">2 Groups</button>
+                        <button id="proj-preset-count-3" onclick="window.selectQuickCount(3)" class="py-2 bg-slate-800 hover:bg-slate-700 text-xs font-bold text-white rounded-xl border border-slate-700 transition-all">3 Groups</button>
+                        <button id="proj-preset-count-4" onclick="window.selectQuickCount(4)" class="py-2 bg-slate-800 hover:bg-slate-700 text-xs font-bold text-white rounded-xl border border-slate-700 transition-all">4 Groups</button>
+                        <button id="proj-preset-count-5" onclick="window.selectQuickCount(5)" class="py-2 bg-slate-800 hover:bg-slate-700 text-xs font-bold text-white rounded-xl border border-slate-700 transition-all">5 Groups</button>
+                        <button id="proj-preset-count-6" onclick="window.selectQuickCount(6)" class="py-2 bg-slate-800 hover:bg-slate-700 text-xs font-bold text-white rounded-xl border border-slate-700 transition-all">6 Groups</button>
+                        <button id="proj-preset-count-8" onclick="window.selectQuickCount(8)" class="py-2 bg-slate-800 hover:bg-slate-700 text-xs font-bold text-white rounded-xl border border-slate-700 transition-all">8 Groups</button>
+                    </div>
+                </div>
+
+                <div class="flex items-center space-x-3 bg-slate-950 p-3 rounded-xl border border-slate-800">
+                    <input type="checkbox" id="projForceExactGroupToggle" onchange="window.toggleForceCount(this.checked)" class="w-4 h-4 rounded border-slate-700 bg-slate-900 text-amber-400 focus:ring-amber-400 cursor-pointer">
+                    <label for="projForceExactGroupToggle" class="text-xs font-extrabold text-slate-200 cursor-pointer">
+                        🔒 Force Exact Group Count (Strictly cap tables to selected group count)
+                    </label>
+                </div>
+            </div>
+
+            <button onclick="window.triggerGroupGeneration(); window.closeProjectorGroupingModal();" class="w-full py-3 bg-amber-400 hover:bg-amber-300 text-black font-black text-sm rounded-xl shadow-lg transition-all">
+                🎲 Reshuffle & Group Now!
+            </button>
+        </div>
+    </div>
+
+    <!-- 3. Add Section Modal -->
+    <div id="addSectionModal" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+        <div class="bg-slate-900 border border-slate-800 rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl">
+            <h3 class="font-black text-lg text-white">Create New Class Section</h3>
+            <input type="text" id="newSectionNameInput" placeholder="e.g. Period 4 - Algebra II" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-sm font-semibold text-white focus:outline-none focus:ring-2 focus:ring-amber-400">
+            <div class="flex gap-2">
+                <button onclick="window.createNewSection()" class="flex-1 py-2.5 bg-amber-400 hover:bg-amber-300 text-black font-extrabold text-xs rounded-xl shadow">
+                    Create Section
+                </button>
+                <button onclick="window.closeAddSectionModal()" class="px-4 py-2.5 bg-slate-800 text-slate-300 font-bold text-xs rounded-xl border border-slate-700">
+                    Cancel
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 4. Quick Move Touch Transfer Modal -->
+    <div id="quickMoveModal" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+        <div class="bg-slate-900 border border-slate-800 rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl">
+            <h3 class="font-black text-lg text-white flex items-center gap-2">
+                <span>⇄</span> Move Student to Group
+            </h3>
+            <p id="quickMoveStudentName" class="text-sm font-bold text-amber-300"></p>
+            <div id="quickMoveTargetGroupsList" class="grid grid-cols-2 gap-2">
+                <!-- Group options populated dynamically -->
+            </div>
+            <button onclick="window.closeQuickMoveModal()" class="w-full py-2 bg-slate-800 text-slate-300 font-bold text-xs rounded-xl border border-slate-700">
+                Cancel
+            </button>
+        </div>
+    </div>
+
+    <!-- 5. Quarter Hall Pass Reset Modal -->
+    <div id="resetPassesModal" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+        <div class="bg-slate-900 border border-rose-500/40 rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl text-center">
+            <div class="w-12 h-12 bg-rose-500/20 text-rose-400 rounded-2xl mx-auto flex items-center justify-center text-2xl font-black">
+                🚨
+            </div>
+            <h3 class="font-black text-xl text-white">Reset Passes for Quarter?</h3>
+            <p class="text-xs text-slate-300 leading-relaxed">
+                This will reset all bathroom pass balances back to <strong class="text-amber-300">0 / 4</strong> for <span id="resetClassSectionName" class="font-extrabold text-white">this section</span>. This action cannot be undone.
+            </p>
+            <div class="flex gap-2 pt-2">
+                <button onclick="window.confirmResetQuarterPasses()" class="flex-1 py-2.5 bg-rose-600 hover:bg-rose-500 text-white font-extrabold text-xs rounded-xl shadow">
+                    Confirm Quarter Reset
+                </button>
+                <button onclick="window.closeResetPassesModal()" class="px-4 py-2.5 bg-slate-800 text-slate-300 font-bold text-xs rounded-xl border border-slate-700">
+                    Cancel
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Global Toast Notification Container -->
+    <div id="toastContainer" class="fixed bottom-5 right-5 z-50 flex flex-col gap-2 pointer-events-none"></div>
+
+
+    <!-- ==================== APPLICATION JAVASCRIPT ==================== -->
+    <script>
+        // --- CONSTANTS & STYLING DEFINITIONS ---
+        const MAX_QUARTER_PASSES = 4;
+        const COLOR_DEFINITIONS = [
+            { name: "Blue Table", color: "bg-blue-600", border: "border-blue-500", bg: "bg-blue-950/30", text: "text-blue-400" },
+            { name: "Red Table", color: "bg-rose-600", border: "border-rose-500", bg: "bg-rose-950/30", text: "text-rose-400" },
+            { name: "Green Table", color: "bg-emerald-600", border: "border-emerald-500", bg: "bg-emerald-950/30", text: "text-emerald-400" },
+            { name: "Yellow Table", color: "bg-amber-500", border: "border-amber-400", bg: "bg-amber-950/30", text: "text-amber-300" },
+            { name: "Purple Table", color: "bg-purple-600", border: "border-purple-500", bg: "bg-purple-950/30", text: "text-purple-400" },
+            { name: "Orange Table", color: "bg-orange-500", border: "border-orange-400", bg: "bg-orange-950/30", text: "text-orange-400" },
+            { name: "Teal Table", color: "bg-teal-500", border: "border-teal-400", bg: "bg-teal-950/30", text: "text-teal-400" },
+            { name: "Pink Table", color: "bg-pink-500", border: "border-pink-400", bg: "bg-pink-950/30", text: "text-pink-400" }
+        ];
+
+        // --- APPLICATION STATE ---
+        let appState = {
+            activeSectionId: 'sec_1',
+            sections: [
+                {
+                    id: 'sec_1',
+                    name: 'Period 1 - Heights Tigers',
+                    roster: [
+                        { id: 'st_1', name: 'Alexander Davis', present: true, passesUsed: 0, outTimestamp: null },
+                        { id: 'st_2', name: 'Jordan Carter', present: true, passesUsed: 1, outTimestamp: null },
+                        { id: 'st_3', name: 'Taylor Smith', present: true, passesUsed: 0, outTimestamp: null },
+                        { id: 'st_4', name: 'Morgan Vance', present: true, passesUsed: 2, outTimestamp: null },
+                        { id: 'st_5', name: 'Riley Johnson', present: true, passesUsed: 0, outTimestamp: null },
+                        { id: 'st_6', name: 'Casey Williams', present: true, passesUsed: 0, outTimestamp: null },
+                        { id: 'st_7', name: 'Avery Brown', present: true, passesUsed: 4, outTimestamp: null },
+                        { id: 'st_8', name: 'Dakota Jones', present: true, passesUsed: 0, outTimestamp: null },
+                        { id: 'st_9', name: 'Cameron Miller', present: true, passesUsed: 0, outTimestamp: null },
+                        { id: 'st_10', name: 'Skyler Wilson', present: true, passesUsed: 1, outTimestamp: null },
+                        { id: 'st_11', name: 'Reese Moore', present: true, passesUsed: 0, outTimestamp: null },
+                        { id: 'st_12', name: 'Quinn Taylor', present: true, passesUsed: 0, outTimestamp: null }
+                    ],
+                    groups: [],
+                    settings: {
+                        quickSize: 4,
+                        quickCount: 0,
+                        forceExactCount: false
+                    }
+                }
+            ]
+        };
+
+        let timerInterval = null;
+        let timerSecondsRemaining = 300; // 5 minutes
+        let isTimerRunning = false;
+        let currentQuickMoveStudent = null;
+
+        // --- UTILITY HELPERS ---
+        function escapeHtml(str) {
+            if (!str) return '';
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
+        window.showToast = function showToast(message, type = "success") {
+            const container = document.getElementById('toastContainer');
+            if (!container) return;
+            const toast = document.createElement('div');
+            toast.className = `pointer-events-auto px-4 py-2.5 rounded-xl font-bold text-xs shadow-2xl transition-all transform translate-y-2 opacity-0 flex items-center gap-2 ${
+                type === 'error' ? 'bg-rose-600 text-white' : 'bg-amber-400 text-black'
+            }`;
+            toast.innerHTML = `<span>${type === 'error' ? '⚠️' : '✅'}</span> ${escapeHtml(message)}`;
+            container.appendChild(toast);
+            requestAnimationFrame(() => {
+                toast.classList.remove('translate-y-2', 'opacity-0');
+            });
+            setTimeout(() => {
+                toast.classList.add('opacity-0', 'translate-y-2');
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        };
+
+        // --- DUAL STORAGE ENGINE (localStorage + IndexedDB) ---
+        const DB_NAME = 'TigerGroupCraftDB';
+        const DB_VERSION = 1;
+        const STORE_NAME = 'app_state_store';
+        const STORAGE_KEY = 'tiger_groupcraft_state_v2';
+
+        function initIndexedDB() {
+            return new Promise((resolve) => {
+                if (!window.indexedDB) return resolve(null);
+                try {
+                    const request = indexedDB.open(DB_NAME, DB_VERSION);
+                    request.onupgradeneeded = function(e) {
+                        const db = e.target.result;
+                        if (!db.objectStoreNames.contains(STORE_NAME)) {
+                            db.createObjectStore(STORE_NAME);
+                        }
+                    };
+                    request.onsuccess = function(e) { resolve(e.target.result); };
+                    request.onerror = function(e) { resolve(null); };
+                } catch(e) {
+                    resolve(null);
+                }
+            });
+        }
+
+        async function saveState() {
+            // 1. Save to localStorage
+            try {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(appState));
+            } catch (e) {
+                console.warn("localStorage save error", e);
+            }
+
+            // 2. Save to IndexedDB (persists across iframe origin changes on Google Sites)
+            try {
+                const db = await initIndexedDB();
+                if (db) {
+                    const tx = db.transaction(STORE_NAME, 'readwrite');
+                    const store = tx.objectStore(STORE_NAME);
+                    store.put(JSON.parse(JSON.stringify(appState)), 'current_state');
+                }
+            } catch (e) {
+                console.warn("IndexedDB save error", e);
+            }
+
+            updateStorageStatusBadge(true);
+        }
+
+        async function loadState() {
+            let loaded = false;
+
+            // 1. Primary: Try localStorage
+            try {
+                const saved = localStorage.getItem(STORAGE_KEY);
+                if (saved) {
+                    const parsed = JSON.parse(saved);
+                    if (parsed && parsed.sections && parsed.sections.length > 0) {
+                        appState = parsed;
+                        loaded = true;
+                    }
+                }
+            } catch (e) {
+                console.warn("localStorage load error", e);
+            }
+
+            // 2. Fallback: Try IndexedDB if localStorage was cleared/sandboxed
+            if (!loaded) {
+                try {
+                    const db = await initIndexedDB();
+                    if (db) {
+                        const tx = db.transaction(STORE_NAME, 'readonly');
+                        const store = tx.objectStore(STORE_NAME);
+                        const req = store.get('current_state');
+                        await new Promise((resolve) => {
+                            req.onsuccess = function() {
+                                if (req.result && req.result.sections && req.result.sections.length > 0) {
+                                    appState = req.result;
+                                    loaded = true;
+                                }
+                                resolve();
+                            };
+                            req.onerror = function() { resolve(); };
+                        });
+                    }
+                } catch (e) {
+                    console.warn("IndexedDB load error", e);
+                }
+            }
+
+            updateStorageStatusBadge(loaded);
+        }
+
+        function updateStorageStatusBadge(isSaved) {
+            const badge = document.getElementById('storageStatusBadge');
+            if (badge) {
+                if (isSaved) {
+                    badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-400 inline-block animate-pulse"></span> <span>Auto-Saved</span>`;
+                    badge.className = "text-[10px] font-bold text-emerald-400 bg-emerald-950/60 border border-emerald-500/30 px-2 py-0.5 rounded-full flex items-center gap-1.5";
+                } else {
+                    badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-amber-400 inline-block"></span> <span>Ready</span>`;
+                    badge.className = "text-[10px] font-bold text-amber-300 bg-amber-950/60 border border-amber-500/30 px-2 py-0.5 rounded-full flex items-center gap-1.5";
+                }
+            }
+        }
+
+        window.getActiveSection = function getActiveSection() {
+            return appState.sections.find(s => s.id === appState.activeSectionId) || appState.sections[0];
+        };
+
+        // --- NAVIGATION TABS ---
+        window.switchTab = function switchTab(tabId) {
+            ['groups', 'roster', 'settings', 'passes'].forEach(id => {
+                const btn = document.getElementById(`nav-tab-${id}`);
+                const content = document.getElementById(`tab-content-${id}`);
+                if (btn) {
+                    if (id === tabId) {
+                        btn.className = "tab-btn active px-4 py-2 rounded-xl font-bold text-xs sm:text-sm flex items-center gap-2 transition-all bg-amber-400 text-black shadow";
+                    } else {
+                        btn.className = "tab-btn px-4 py-2 rounded-xl font-bold text-xs sm:text-sm text-slate-400 hover:text-white hover:bg-slate-800 flex items-center gap-2 transition-all";
+                    }
+                }
+                if (content) {
+                    if (id === tabId) content.classList.remove('hidden');
+                    else content.classList.add('hidden');
+                }
+            });
+
+            if (tabId === 'passes') renderPasses();
+            if (tabId === 'groups') renderGroups();
+            if (tabId === 'roster') renderRoster();
+            if (tabId === 'settings') syncSettingsUI();
+        };
+
+        // --- SECTION MANAGEMENT ---
+        window.switchSection = function switchSection(secId) {
+            appState.activeSectionId = secId;
+            saveState();
+            renderSectionDropdown();
+            renderRoster();
+            renderGroups();
+            renderPasses();
+            syncSettingsUI();
+            const sec = getActiveSection();
+            if (sec) showToast(`Switched to ${sec.name}`);
+        };
+
+        function renderSectionDropdown() {
+            const headerSelect = document.getElementById('headerSectionSelect');
+            if (!headerSelect) return;
+            headerSelect.innerHTML = appState.sections.map(sec => `
+                <option value="${sec.id}" ${sec.id === appState.activeSectionId ? 'selected' : ''}>
+                    ${escapeHtml(sec.name)}
+                </option>
+            `).join('');
+        }
+
+        window.openAddSectionModal = function openAddSectionModal() {
+            document.getElementById('addSectionModal')?.classList.remove('hidden');
+        };
+
+        window.closeAddSectionModal = function closeAddSectionModal() {
+            document.getElementById('addSectionModal')?.classList.add('hidden');
+        };
+
+        window.createNewSection = function createNewSection() {
+            const nameInput = document.getElementById('newSectionNameInput');
+            const name = (nameInput ? nameInput.value : '').trim();
+            if (!name) return;
+
+            const newSec = {
+                id: `sec_${Date.now()}`,
+                name: name,
+                roster: [],
+                groups: [],
+                settings: { quickSize: 4, quickCount: 0, forceExactCount: false }
+            };
+
+            appState.sections.push(newSec);
+            appState.activeSectionId = newSec.id;
+            saveState();
+            if (nameInput) nameInput.value = '';
+            closeAddSectionModal();
+            renderSectionDropdown();
+            renderRoster();
+            renderGroups();
+            syncSettingsUI();
+            showToast(`Created section: ${name}`);
+        };
+
+        window.renameActiveSection = function renameActiveSection() {
+            const sec = getActiveSection();
+            const input = document.getElementById('renameSectionInput');
+            const val = (input ? input.value : '').trim();
+            if (sec && val) {
+                sec.name = val;
+                saveState();
+                renderSectionDropdown();
+                if (input) input.value = '';
+                showToast(`Section renamed to ${val}`);
+            }
+        };
+
+        window.deleteActiveSection = function deleteActiveSection() {
+            if (appState.sections.length <= 1) {
+                showToast("Cannot delete the only class section!", "error");
+                return;
+            }
+            const sec = getActiveSection();
+            appState.sections = appState.sections.filter(s => s.id !== sec.id);
+            appState.activeSectionId = appState.sections[0].id;
+            saveState();
+            renderSectionDropdown();
+            renderRoster();
+            renderGroups();
+            showToast("Section deleted");
+        };
+
+
+        // --- PRESET SELECTION & GROUPING ALGORITHM ---
+        window.selectQuickSize = function selectQuickSize(size) {
+            const sec = getActiveSection();
+            if (!sec) return;
+            if (sec.settings.quickSize === size && sec.settings.quickCount > 0) {
+                sec.settings.quickSize = 0; // Toggle off size if count is explicitly active
+            } else {
+                sec.settings.quickSize = size;
+            }
+            saveState();
+            syncSettingsUI();
+        };
+
+        window.selectQuickCount = function selectQuickCount(count) {
+            const sec = getActiveSection();
+            if (!sec) return;
+            if (sec.settings.quickCount === count) {
+                sec.settings.quickCount = 0; // Toggle off count
+            } else {
+                sec.settings.quickCount = count;
+            }
+            saveState();
+            syncSettingsUI();
+        };
+
+        window.toggleForceCount = function toggleForceCount(forced) {
+            const sec = getActiveSection();
+            if (!sec) return;
+            sec.settings.forceExactCount = forced;
+            saveState();
+            syncSettingsUI();
+        };
+
+        function syncSettingsUI() {
+            const sec = getActiveSection();
+            if (!sec) return;
+
+            const qSize = sec.settings.quickSize || 0;
+            const qCount = sec.settings.quickCount || 0;
+            const forceExact = sec.settings.forceExactCount;
+
+            const updateButtonState = (id, isActive) => {
+                const btn = document.getElementById(id);
+                if (!btn) return;
+                if (isActive) {
+                    btn.className = "py-2.5 px-3 bg-amber-400 text-black font-black text-xs rounded-xl shadow-md border border-amber-300 transition-all";
+                } else {
+                    btn.className = "py-2.5 px-3 bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs rounded-xl border border-slate-700 transition-all";
+                }
+            };
+
+            // Sync Size preset buttons (Main Tab & Projector Modal)
+            [2, 3, 4, 5, 6].forEach(s => {
+                const active = (qSize === s);
+                updateButtonState(`preset-size-${s}`, active);
+                updateButtonState(`proj-preset-size-${s}`, active);
+            });
+
+            // Sync Count preset buttons (Main Tab & Projector Modal)
+            [2, 3, 4, 5, 6, 8].forEach(c => {
+                const active = (qCount === c);
+                updateButtonState(`preset-count-${c}`, active);
+                updateButtonState(`proj-preset-count-${c}`, active);
+            });
+
+            // Sync Force Count Checkboxes
+            const forceToggle = document.getElementById('forceExactGroupToggle');
+            if (forceToggle) forceToggle.checked = !!forceExact;
+            const projForceToggle = document.getElementById('projForceExactGroupToggle');
+            if (projForceToggle) projForceToggle.checked = !!forceExact;
+
+            // Build Active Rule Text
+            let ruleText = "";
+            if (qCount > 0 && qSize > 0) {
+                ruleText = `${qCount} Total Groups • ${qSize} Students / Group`;
+            } else if (qCount > 0) {
+                ruleText = `${qCount} Total Groups (Evenly Divided)`;
+            } else if (qSize > 0) {
+                ruleText = `Groups of ${qSize} Students`;
+            } else {
+                ruleText = `Groups of 4 Students (Default)`;
+            }
+
+            if (forceExact && qCount > 0) {
+                ruleText += " [Strict Cap]";
+            }
+
+            // Update all status badges across UI
+            const badge = document.getElementById('activeRuleBadge');
+            if (badge) badge.textContent = ruleText;
+
+            const projSubtitle = document.getElementById('projectorRuleSubtitle');
+            if (projSubtitle) projSubtitle.textContent = ruleText;
+
+            const projModalBadge = document.getElementById('projModalRuleBadge');
+            if (projModalBadge) projModalBadge.textContent = ruleText;
+        }
+
+        window.triggerGroupGeneration = function triggerGroupGeneration() {
+            const sec = getActiveSection();
+            if (!sec) return;
+
+            const presentStudents = sec.roster.filter(s => s.present);
+            if (presentStudents.length === 0) {
+                showToast("No students marked present in roster!", "error");
+                return;
+            }
+
+            const shuffled = [...presentStudents].sort(() => Math.random() - 0.5);
+            const totalCount = shuffled.length;
+
+            let qSize = sec.settings.quickSize || 0;
+            let qCount = sec.settings.quickCount || 0;
+            let forceExact = sec.settings.forceExactCount;
+
+            let numGroups = 0;
+            let targetCapacity = 0;
+
+            if (qCount > 0 && qSize > 0) {
+                // DUAL CONSTRAINT: Exact N groups, filled up to S capacity per group
+                numGroups = qCount;
+                targetCapacity = qSize;
+            } else if (qCount > 0) {
+                // EXACT GROUP COUNT ONLY: Evenly divide total kids into N groups
+                numGroups = qCount;
+                targetCapacity = Math.ceil(totalCount / numGroups);
+            } else if (qSize > 0) {
+                // GROUP SIZE ONLY: Calculate needed groups for target size
+                numGroups = Math.ceil(totalCount / qSize);
+                targetCapacity = qSize;
+            } else {
+                // DEFAULT: Groups of 4
+                qSize = 4;
+                numGroups = Math.ceil(totalCount / qSize);
+                targetCapacity = qSize;
+            }
+
+            numGroups = Math.max(1, Math.min(numGroups, 8)); // Cap between 1 and 8 color tables
+
+            // Initialize station group objects
+            let groups = [];
+            for (let i = 0; i < numGroups; i++) {
+                const colorDef = COLOR_DEFINITIONS[i % COLOR_DEFINITIONS.length];
+                groups.push({
+                    id: `grp_${i + 1}`,
+                    colorIndex: i,
+                    name: colorDef.name,
+                    colorClass: colorDef.color,
+                    borderClass: colorDef.border,
+                    bgClass: colorDef.bg,
+                    textClass: colorDef.text,
+                    students: []
+                });
+            }
+
+            let studentIdx = 0;
+
+            if (qCount > 0 && qSize > 0) {
+                // Fill groups 1..N up to targetCapacity (e.g. 5) strictly first
+                for (let g = 0; g < groups.length; g++) {
+                    while (groups[g].students.length < targetCapacity && studentIdx < totalCount) {
+                        groups[g].students.push(shuffled[studentIdx++]);
+                    }
+                }
+                // If there are overflow students beyond targetCapacity * numGroups,
+                // randomly distribute overflow students into existing groups without creating new ones
+                while (studentIdx < totalCount) {
+                    const randomGrp = groups[Math.floor(Math.random() * groups.length)];
+                    randomGrp.students.push(shuffled[studentIdx++]);
+                }
+            } else {
+                // EVEN BALANCED DISTRIBUTION across numGroups
+                // e.g. 14 students across 4 groups -> 4, 4, 3, 3
+                let currentGroup = 0;
+                while (studentIdx < totalCount) {
+                    groups[currentGroup % numGroups].students.push(shuffled[studentIdx++]);
+                    currentGroup++;
+                }
+            }
+
+            sec.groups = groups;
+            saveState();
+            renderGroups();
+            if (document.getElementById('projectorOverlay')?.classList.contains('hidden') === false) {
+                renderProjectorGroups();
+            }
+            showToast("Shuffled color groups!");
+        };
+
+
+        // --- RENDER GROUPS DISPLAY ---
+        window.renderGroups = function renderGroups() {
+            const sec = getActiveSection();
+            const container = document.getElementById('groupsDisplayContainer');
+            const rosterBadge = document.getElementById('activeRosterCountBadge');
+            if (!sec || !container) return;
+
+            const presentCount = sec.roster.filter(s => s.present).length;
+            if (rosterBadge) rosterBadge.textContent = `${presentCount} Present`;
+
+            if (!sec.groups || sec.groups.length === 0) {
+                container.innerHTML = `
+                    <div class="col-span-full py-12 text-center bg-slate-900 border border-slate-800 rounded-2xl p-6">
+                        <span class="text-4xl block mb-2">🎲</span>
+                        <h3 class="font-extrabold text-white text-base">No Color Groups Generated Yet</h3>
+                        <p class="text-xs text-slate-400 mt-1">Click "Shuffle & Group Now!" above to generate seating stations.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = sec.groups.map(grp => {
+                return `
+                    <div class="print-card bg-slate-900 border-2 ${grp.borderClass} ${grp.bgClass} rounded-2xl p-4 flex flex-col justify-between space-y-3 shadow-xl transition-all"
+                         ondragover="window.handleDragOver(event)"
+                         ondrop="window.handleDrop(event, '${grp.id}')">
+                        
+                        <!-- Station Header -->
+                        <div class="flex items-center justify-between border-b border-slate-800 pb-2.5">
+                            <div class="flex items-center space-x-2">
+                                <span class="w-3 h-3 rounded-full ${grp.colorClass}"></span>
+                                <h3 class="font-black text-sm sm:text-base text-white">${escapeHtml(grp.name)}</h3>
+                            </div>
+                            <span class="text-xs font-black px-2 py-0.5 rounded-full bg-slate-950 ${grp.textClass}">
+                                ${grp.students.length} Kids
+                            </span>
+                        </div>
+
+                        <!-- Student List -->
+                        <div class="space-y-2 min-h-[100px] flex-1 flex flex-col justify-start">
+                            ${grp.students.length === 0 ? `
+                                <div class="flex-1 flex items-center justify-center border-2 border-dashed border-slate-800 rounded-xl p-4 text-center">
+                                    <span class="text-xs font-semibold text-slate-500">Drag students here</span>
+                                </div>
+                            ` : grp.students.map(st => `
+                                <div draggable="true"
+                                     ondragstart="window.handleDragStart(event, '${st.id}', '${grp.id}')"
+                                     class="bg-slate-950 border border-slate-800 hover:border-amber-400/60 rounded-xl p-2.5 flex items-center justify-between shadow cursor-grab active:cursor-grabbing transition-all group">
+                                    <span class="font-extrabold text-xs sm:text-sm text-white">${escapeHtml(st.name)}</span>
+                                    <div class="flex items-center space-x-1 opacity-80 group-hover:opacity-100">
+                                        <button onclick="window.openQuickMoveModal('${st.id}', '${grp.id}')" class="p-1 hover:bg-slate-800 rounded text-amber-300 text-xs" title="Move to another group">
+                                            ⇄
+                                        </button>
+                                        <button onclick="window.removeStudentFromGroup('${grp.id}', '${st.id}')" class="p-1 hover:bg-rose-900/50 text-rose-400 rounded text-xs" title="Remove student">
+                                            ✕
+                                        </button>
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        };
+
+
+        // --- DRAG AND DROP HANDLERS ---
+        window.handleDragStart = function handleDragStart(e, studentId, fromGroupId) {
+            e.dataTransfer.setData('text/plain', JSON.stringify({ studentId, fromGroupId }));
+        };
+
+        window.handleDragOver = function handleDragOver(e) {
+            e.preventDefault();
+        };
+
+        window.handleDrop = function handleDrop(e, toGroupId) {
+            e.preventDefault();
+            const dataStr = e.dataTransfer.getData('text/plain');
+            if (!dataStr) return;
+            try {
+                const { studentId, fromGroupId } = JSON.parse(dataStr);
+                moveStudentBetweenGroups(studentId, fromGroupId, toGroupId);
+            } catch (err) {
+                console.error("Drop error", err);
+            }
+        };
+
+        function moveStudentBetweenGroups(studentId, fromGroupId, toGroupId) {
+            if (fromGroupId === toGroupId) return;
+            const sec = getActiveSection();
+            if (!sec) return;
+
+            const fromGrp = sec.groups.find(g => g.id === fromGroupId);
+            const toGrp = sec.groups.find(g => g.id === toGroupId);
+            if (!fromGrp || !toGrp) return;
+
+            const studentIdx = fromGrp.students.findIndex(s => s.id === studentId);
+            if (studentIdx === -1) return;
+
+            const [student] = fromGrp.students.splice(studentIdx, 1);
+            toGrp.students.push(student);
+
+            saveState();
+            renderGroups();
+            if (document.getElementById('projectorOverlay')?.classList.contains('hidden') === false) {
+                renderProjectorGroups();
+            }
+        }
+
+        window.removeStudentFromGroup = function removeStudentFromGroup(groupId, studentId) {
+            const sec = getActiveSection();
+            if (!sec) return;
+            const grp = sec.groups.find(g => g.id === groupId);
+            if (grp) {
+                grp.students = grp.students.filter(s => s.id !== studentId);
+                saveState();
+                renderGroups();
+            }
+        };
+
+        window.openQuickMoveModal = function openQuickMoveModal(studentId, currentGroupId) {
+            const sec = getActiveSection();
+            const student = sec.roster.find(s => s.id === studentId);
+            if (!student || !sec) return;
+
+            currentQuickMoveStudent = { studentId, currentGroupId };
+            document.getElementById('quickMoveStudentName').textContent = `Student: ${student.name}`;
+            
+            const targetList = document.getElementById('quickMoveTargetGroupsList');
+            if (targetList) {
+                targetList.innerHTML = sec.groups.filter(g => g.id !== currentGroupId).map(g => `
+                    <button onclick="window.executeQuickMove('${g.id}')" class="p-3 bg-slate-950 border border-slate-800 hover:border-amber-400 rounded-xl text-xs font-extrabold text-white text-left flex items-center justify-between">
+                        <span>${escapeHtml(g.name)}</span>
+                        <span class="w-2.5 h-2.5 rounded-full ${g.colorClass}"></span>
+                    </button>
+                `).join('');
+            }
+            document.getElementById('quickMoveModal')?.classList.remove('hidden');
+        };
+
+        window.executeQuickMove = function executeQuickMove(targetGroupId) {
+            if (currentQuickMoveStudent) {
+                moveStudentBetweenGroups(currentQuickMoveStudent.studentId, currentQuickMoveStudent.currentGroupId, targetGroupId);
+            }
+            closeQuickMoveModal();
+        };
+
+        window.closeQuickMoveModal = function closeQuickMoveModal() {
+            document.getElementById('quickMoveModal')?.classList.add('hidden');
+            currentQuickMoveStudent = null;
+        };
+
+
+        // --- CLASS ROSTER MANAGEMENT ---
+        window.renderRoster = function renderRoster() {
+            const sec = getActiveSection();
+            const container = document.getElementById('rosterListContainer');
+            if (!sec || !container) return;
+
+            if (sec.roster.length === 0) {
+                container.innerHTML = `<div class="py-8 text-center text-slate-500 font-bold text-xs">No students in roster yet.</div>`;
+                return;
+            }
+
+            container.innerHTML = sec.roster.map(st => `
+                <div class="py-3 px-2 flex items-center justify-between hover:bg-slate-950/50 rounded-xl transition-all">
+                    <div class="flex items-center space-x-3">
+                        <input type="checkbox" ${st.present ? 'checked' : ''} onchange="window.toggleStudentAttendance('${st.id}', this.checked)" class="w-4 h-4 rounded border-slate-700 bg-slate-950 text-amber-400 focus:ring-amber-400 cursor-pointer">
+                        <span class="font-extrabold text-sm ${st.present ? 'text-white' : 'text-slate-500 line-through'}">
+                            ${escapeHtml(st.name)}
+                        </span>
+                    </div>
+                    <button onclick="window.deleteStudent('${st.id}')" class="p-1 text-slate-500 hover:text-rose-400 text-xs font-bold" title="Delete Student">
+                        ✕
+                    </button>
+                </div>
+            `).join('');
+        };
+
+        window.handleAddStudentSubmit = function handleAddStudentSubmit(e) {
+            e.preventDefault();
+            const input = document.getElementById('newStudentNameInput');
+            const name = (input ? input.value : '').trim();
+            if (!name) return;
+            const sec = getActiveSection();
+            if (!sec) return;
+            const newSt = {
+                id: `st_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+                name: name,
+                present: true,
+                passesUsed: 0,
+                outTimestamp: null
+            };
+            sec.roster.push(newSt);
+            saveState();
+            if (input) input.value = '';
+            renderRoster();
+            renderPasses();
+            showToast(`Added ${name} to roster`);
+        };
+
+        window.toggleStudentAttendance = function toggleStudentAttendance(stId, isPresent) {
+            const sec = getActiveSection();
+            if (!sec) return;
+            const st = sec.roster.find(s => s.id === stId);
+            if (st) {
+                st.present = isPresent;
+                saveState();
+                renderRoster();
+                renderGroups();
+            }
+        };
+
+        window.deleteStudent = function deleteStudent(stId) {
+            const sec = getActiveSection();
+            if (!sec) return;
+            const st = sec.roster.find(s => s.id === stId);
+            const name = st ? st.name : 'Student';
+            sec.roster = sec.roster.filter(s => s.id !== stId);
+            if (sec.groups) {
+                sec.groups.forEach(g => {
+                    g.students = g.students.filter(s => s.id !== stId);
+                });
+            }
+            saveState();
+            renderRoster();
+            renderGroups();
+            renderPasses();
+            showToast(`Removed ${name}`);
+        };
+
+        window.executeBulkImport = function executeBulkImport() {
+            const textarea = document.getElementById('bulkImportTextarea');
+            const text = (textarea ? textarea.value : '').trim();
+            if (!text) return;
+            const sec = getActiveSection();
+            if (!sec) return;
+
+            const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+            let count = 0;
+            lines.forEach((name, idx) => {
+                const newSt = {
+                    id: `st_${Date.now()}_${idx}_${Math.random().toString(36).substr(2, 4)}`,
+                    name: name,
+                    present: true,
+                    passesUsed: 0,
+                    outTimestamp: null
+                };
+                sec.roster.push(newSt);
+                count++;
+            });
+
+            saveState();
+            if (textarea) textarea.value = '';
+            renderRoster();
+            renderPasses();
+            showToast(`Imported ${count} students`);
+        };
+
+        window.markAllAttendance = function markAllAttendance(isPresent) {
+            const sec = getActiveSection();
+            if (!sec) return;
+            sec.roster.forEach(st => { st.present = isPresent; });
+            saveState();
+            renderRoster();
+            renderGroups();
+            showToast(isPresent ? "Marked all present" : "Marked all absent");
+        };
+
+        // --- PROJECTOR / PRESENTATION MODE (30FT READABILITY & ZERO CLIPPING) ---
+        window.toggleProjectorMode = function toggleProjectorMode() {
+            const overlay = document.getElementById('projectorOverlay');
+            if (!overlay) return;
+            if (overlay.classList.contains('hidden')) {
+                overlay.classList.remove('hidden');
+                renderProjectorGroups();
+            } else {
+                overlay.classList.add('hidden');
+            }
+        };
+
+        function renderProjectorGroups() {
+            const sec = getActiveSection();
+            const grid = document.getElementById('projectorGroupsGrid');
+            const title = document.getElementById('projectorSectionTitle');
+            const subtitle = document.getElementById('projectorRuleSubtitle');
+
+            if (!sec || !grid) return;
+
+            if (title) title.textContent = sec.name;
+            if (subtitle) {
+                let text = `${sec.settings.quickSize} Students / Group`;
+                if (sec.settings.quickCount > 0) text = `${sec.settings.quickCount} Total Groups • ${sec.settings.quickSize} / Group`;
+                subtitle.textContent = text;
+            }
+
+            if (!sec.groups || sec.groups.length === 0) {
+                grid.className = "flex-1 flex flex-col items-center justify-center min-h-0 overflow-hidden";
+                grid.innerHTML = `
+                    <div class="w-full max-w-lg flex flex-col items-center justify-center p-8 text-center bg-slate-900 border border-slate-800 rounded-3xl">
+                        <span class="text-6xl mb-4">🎲</span>
+                        <h3 class="font-black text-2xl text-white">No Groups Active</h3>
+                        <p class="text-sm text-slate-400 mt-2">Click "Group Rules" in the header to reshuffle seating stations.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            const numGroups = sec.groups.length;
+            const maxStudents = Math.max(...sec.groups.map(g => g.students.length), 1);
+
+            // Compute exact fit grid dimensions based on number of groups to guarantee zero clipping
+            let gridLayoutClass = "grid-cols-1 grid-rows-1";
+            let isTwoRows = false;
+            if (numGroups === 2) {
+                gridLayoutClass = "grid-cols-2 grid-rows-1";
+            } else if (numGroups === 3) {
+                gridLayoutClass = "grid-cols-3 grid-rows-1";
+            } else if (numGroups === 4) {
+                gridLayoutClass = "grid-cols-2 grid-rows-2";
+                isTwoRows = true;
+            } else if (numGroups === 5 || numGroups === 6) {
+                gridLayoutClass = "grid-cols-3 grid-rows-2";
+                isTwoRows = true;
+            } else if (numGroups >= 7) {
+                gridLayoutClass = "grid-cols-4 grid-rows-2";
+                isTwoRows = true;
+            }
+
+            grid.className = `flex-1 grid ${gridLayoutClass} gap-2.5 sm:gap-3.5 min-h-0 overflow-hidden h-full`;
+
+            // Calculate character & count aware font scaling to fit screen dynamically
+            let fontClass = "text-xl sm:text-2xl font-black";
+            let itemPadding = "py-2 px-3";
+            let cardPadding = "p-3 sm:p-4";
+            let headerTextClass = "text-lg sm:text-xl font-black";
+            let headerPadding = "pb-2 mb-2";
+
+            if (isTwoRows) {
+                if (maxStudents <= 3) {
+                    fontClass = "text-lg sm:text-xl font-extrabold";
+                    itemPadding = "py-1.5 px-2.5";
+                    cardPadding = "p-3";
+                    headerTextClass = "text-base sm:text-lg font-black";
+                    headerPadding = "pb-1.5 mb-1.5";
+                } else if (maxStudents <= 5) {
+                    fontClass = "text-sm sm:text-base font-bold";
+                    itemPadding = "py-1 px-2.5";
+                    cardPadding = "p-2.5";
+                    headerTextClass = "text-sm sm:text-base font-black";
+                    headerPadding = "pb-1 mb-1";
+                } else if (maxStudents <= 7) {
+                    fontClass = "text-xs sm:text-sm font-bold";
+                    itemPadding = "py-0.5 px-2";
+                    cardPadding = "p-2";
+                    headerTextClass = "text-xs sm:text-sm font-black";
+                    headerPadding = "pb-1 mb-1";
+                } else {
+                    fontClass = "text-[11px] sm:text-xs font-bold";
+                    itemPadding = "py-0.5 px-1.5";
+                    cardPadding = "p-1.5";
+                    headerTextClass = "text-xs font-black";
+                    headerPadding = "pb-0.5 mb-0.5";
+                }
+            } else {
+                if (maxStudents <= 3) {
+                    fontClass = "text-2xl sm:text-4xl font-black";
+                    itemPadding = "py-3 px-4";
+                    cardPadding = "p-4 sm:p-5";
+                    headerTextClass = "text-xl sm:text-2xl font-black";
+                    headerPadding = "pb-2.5 mb-2.5";
+                } else if (maxStudents <= 5) {
+                    fontClass = "text-lg sm:text-2xl font-black";
+                    itemPadding = "py-2 px-3.5";
+                    cardPadding = "p-3.5 sm:p-4";
+                    headerTextClass = "text-lg sm:text-xl font-black";
+                    headerPadding = "pb-2 mb-2";
+                } else if (maxStudents <= 7) {
+                    fontClass = "text-base sm:text-lg font-extrabold";
+                    itemPadding = "py-1.5 px-3";
+                    cardPadding = "p-3";
+                    headerTextClass = "text-base sm:text-lg font-black";
+                    headerPadding = "pb-1.5 mb-1.5";
+                } else {
+                    fontClass = "text-sm sm:text-base font-bold";
+                    itemPadding = "py-1 px-2";
+                    cardPadding = "p-2.5";
+                    headerTextClass = "text-sm sm:text-base font-black";
+                    headerPadding = "pb-1 mb-1";
+                }
+            }
+
+            grid.innerHTML = sec.groups.map(grp => {
+                return `
+                    <div id="proj_card_${grp.id}" class="bg-slate-900 border-2 ${grp.borderClass} ${grp.bgClass} rounded-2xl ${cardPadding} flex flex-col justify-between shadow-2xl h-full min-h-0 overflow-hidden transition-all"
+                         ondragover="window.handleDragOver(event)"
+                         ondrop="window.handleDrop(event, '${grp.id}')">
+                        
+                        <!-- Station Header -->
+                        <div class="flex items-center justify-between border-b-2 border-slate-800/80 ${headerPadding} shrink-0">
+                            <div class="flex items-center space-x-2.5 min-w-0">
+                                <span class="w-3.5 h-3.5 rounded-full ${grp.colorClass} shrink-0"></span>
+                                <h3 class="${headerTextClass} text-white tracking-wide truncate">${escapeHtml(grp.name)}</h3>
+                            </div>
+                            <span class="text-xs sm:text-sm font-black px-2.5 py-0.5 rounded-full bg-slate-950 ${grp.textClass} shrink-0">
+                                ${grp.students.length}
+                            </span>
+                        </div>
+
+                        <!-- Scrollbar-Free High Visibility Flexible Student Names List -->
+                        <div class="flex-1 flex flex-col justify-evenly gap-1 min-h-0 overflow-hidden">
+                            ${grp.students.length === 0 ? `
+                                <div class="flex-1 flex items-center justify-center border-2 border-dashed border-slate-800/80 rounded-xl min-h-0">
+                                    <span class="text-xs font-bold text-slate-600 uppercase tracking-widest">Empty Station</span>
+                                </div>
+                            ` : grp.students.map(st => `
+                                <div id="proj_st_${st.id}"
+                                     draggable="true"
+                                     ondragstart="window.handleDragStart(event, '${st.id}', '${grp.id}')"
+                                     class="bg-slate-950 border border-slate-800 rounded-xl ${itemPadding} flex items-center justify-between shadow-md cursor-grab active:cursor-grabbing min-h-0 overflow-hidden">
+                                    <span class="${fontClass} text-white leading-tight break-words whitespace-normal tracking-tight min-w-0">
+                                        ${escapeHtml(st.name)}
+                                    </span>
+                                    <button onclick="window.openQuickMoveModal('${st.id}', '${grp.id}')" class="ml-1.5 text-slate-500 hover:text-amber-300 font-bold text-xs shrink-0" title="Move Group">
+                                        ⇄
+                                    </button>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        window.openProjectorGroupingModal = function openProjectorGroupingModal() {
+            document.getElementById('projectorGroupingModal')?.classList.remove('hidden');
+        };
+
+        window.closeProjectorGroupingModal = function closeProjectorGroupingModal() {
+            document.getElementById('projectorGroupingModal')?.classList.add('hidden');
+        };
+
+
+        // --- CLASSROOM TIMER ---
+        window.toggleTimerWidget = function toggleTimerWidget() {
+            const container = document.getElementById('projectorTimerContainer');
+            const btn = document.getElementById('projectorTimerToggleBtn');
+            if (!container) return;
+
+            if (container.classList.contains('hidden')) {
+                container.classList.remove('hidden');
+                if (btn) btn.className = "px-3.5 py-2 bg-amber-400 text-black font-black text-xs sm:text-sm rounded-xl shadow flex items-center gap-1.5 border border-amber-300";
+            } else {
+                container.classList.add('hidden');
+                if (btn) btn.className = "px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-extrabold text-xs sm:text-sm rounded-xl border border-slate-700 flex items-center gap-1.5";
+            }
+        };
+
+        window.toggleTimer = function toggleTimer() {
+            if (isTimerRunning) {
+                clearInterval(timerInterval);
+                isTimerRunning = false;
+                document.getElementById('timerPlayBtn').textContent = "▶️";
+            } else {
+                isTimerRunning = true;
+                document.getElementById('timerPlayBtn').textContent = "⏸️";
+                timerInterval = setInterval(() => {
+                    if (timerSecondsRemaining > 0) {
+                        timerSecondsRemaining--;
+                        updateTimerDisplay();
+                    } else {
+                        clearInterval(timerInterval);
+                        isTimerRunning = false;
+                        document.getElementById('timerPlayBtn').textContent = "▶️";
+                        showToast("🔔 Time's Up!");
+                    }
+                }, 1000);
+            }
+        };
+
+        window.resetTimer = function resetTimer() {
+            clearInterval(timerInterval);
+            isTimerRunning = false;
+            timerSecondsRemaining = 300;
+            document.getElementById('timerPlayBtn').textContent = "▶️";
+            updateTimerDisplay();
+        };
+
+        window.addTimerMinutes = function addTimerMinutes(mins) {
+            timerSecondsRemaining += mins * 60;
+            updateTimerDisplay();
+        };
+
+        function updateTimerDisplay() {
+            const m = Math.floor(timerSecondsRemaining / 60);
+            const s = timerSecondsRemaining % 60;
+            const formatted = `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+            const clock = document.getElementById('projectorTimerClock');
+            if (clock) clock.textContent = formatted;
+        }
+
+
+        // --- TIGER SPOTLIGHT STUDENT PICKER ---
+        window.startSpotlight = function startSpotlight() {
+            document.getElementById('randomPickerModal')?.classList.remove('hidden');
+        };
+
+        window.closeSpotlightModal = function closeSpotlightModal() {
+            document.getElementById('randomPickerModal')?.classList.add('hidden');
+        };
+
+        window.executeSpotlightPick = function executeSpotlightPick() {
+            const sec = getActiveSection();
+            if (!sec || !sec.groups || sec.groups.length === 0) {
+                showToast("Generate groups first before picking a student!", "error");
+                return;
+            }
+
+            let allAssignedStudents = [];
+            sec.groups.forEach(g => {
+                g.students.forEach(st => {
+                    allAssignedStudents.push({ student: st, group: g });
+                });
+            });
+
+            if (allAssignedStudents.length === 0) {
+                showToast("No active students found in groups!", "error");
+                return;
+            }
+
+            const nameDisplay = document.getElementById('spotlightNameDisplay');
+            const groupDisplay = document.getElementById('spotlightGroupDisplay');
+
+            let counter = 0;
+            const maxCycles = 20;
+            const interval = setInterval(() => {
+                const rand = allAssignedStudents[Math.floor(Math.random() * allAssignedStudents.length)];
+                if (nameDisplay) nameDisplay.textContent = rand.student.name;
+                if (groupDisplay) groupDisplay.textContent = `Station: ${rand.group.name}`;
+                counter++;
+
+                if (counter >= maxCycles) {
+                    clearInterval(interval);
+                    const winner = allAssignedStudents[Math.floor(Math.random() * allAssignedStudents.length)];
+                    if (nameDisplay) nameDisplay.textContent = winner.student.name;
+                    if (groupDisplay) groupDisplay.textContent = `🏆 Winner from ${winner.group.name}!`;
+                    
+                    // Highlight on projector view if active
+                    const projBanner = document.getElementById('projectorSpotlightBanner');
+                    if (projBanner) {
+                        projBanner.textContent = `🏆 Spotlight Winner: ${winner.student.name} (${winner.group.name})`;
+                        projBanner.classList.remove('hidden');
+                    }
+
+                    showToast(`Spotlight: ${winner.student.name}!`);
+                }
+            }, 80);
+        };
+
+
+        // --- HALL PASS TRACKER ---
+        window.issuePass = function issuePass(stId) {
+            const sec = getActiveSection();
+            if (!sec) return;
+            const st = sec.roster.find(s => s.id === stId);
+            if (!st) return;
+
+            if (st.passesUsed >= MAX_QUARTER_PASSES) {
+                showToast(`${st.name} has reached the pass limit (${MAX_QUARTER_PASSES}/${MAX_QUARTER_PASSES})!`, "error");
+                return;
+            }
+
+            st.passesUsed++;
+            st.outTimestamp = Date.now();
+            saveState();
+            renderPasses();
+            showToast(`Issued pass to ${st.name} (${st.passesUsed}/${MAX_QUARTER_PASSES})`);
+        };
+
+        window.returnStudentFromPass = function returnStudentFromPass(stId) {
+            const sec = getActiveSection();
+            if (!sec) return;
+            const st = sec.roster.find(s => s.id === stId);
+            if (!st) return;
+            st.outTimestamp = null;
+            saveState();
+            renderPasses();
+            showToast(`${st.name} returned to class`);
+        };
+
+        window.adjustPassCount = function adjustPassCount(stId, delta) {
+            const sec = getActiveSection();
+            if (!sec) return;
+            const st = sec.roster.find(s => s.id === stId);
+            if (!st) return;
+            const newCount = st.passesUsed + delta;
+            if (newCount >= 0 && newCount <= MAX_QUARTER_PASSES) {
+                st.passesUsed = newCount;
+                saveState();
+                renderPasses();
+            }
+        };
+
+        window.renderPasses = function renderPasses() {
+            const sec = getActiveSection();
+            const grid = document.getElementById('passTrackerGrid');
+            const outBanner = document.getElementById('currentlyOutBanner');
+            const outList = document.getElementById('currentlyOutList');
+            const outBadge = document.getElementById('currentlyOutCountBadge');
+            const searchInput = document.getElementById('passSearchInput');
+            const query = (searchInput ? searchInput.value : '').toLowerCase().trim();
+
+            if (!sec || !grid) return;
+
+            // Sort Alphabetically A-Z
+            const sortedRoster = [...sec.roster].sort((a, b) => a.name.localeCompare(b.name));
+            const filteredRoster = sortedRoster.filter(st => st.name.toLowerCase().includes(query));
+
+            // Currently Out Live Banner
+            const currentlyOut = sec.roster.filter(st => st.outTimestamp);
+            if (currentlyOut.length > 0) {
+                if (outBanner) outBanner.classList.remove('hidden');
+                if (outBadge) outBadge.textContent = `${currentlyOut.length} Out`;
+                if (outList) {
+                    outList.innerHTML = currentlyOut.map(st => {
+                        const elapsedMins = Math.floor((Date.now() - st.outTimestamp) / 60000);
+                        return `
+                            <div class="bg-slate-900 border border-amber-400/80 rounded-xl p-3 flex items-center justify-between shadow">
+                                <div>
+                                    <span class="font-black text-xs text-white block">${escapeHtml(st.name)}</span>
+                                    <span class="text-[10px] text-amber-300 font-bold">Out ${elapsedMins} min ago</span>
+                                </div>
+                                <button onclick="window.returnStudentFromPass('${st.id}')" class="px-2.5 py-1 bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs rounded-lg shadow">
+                                    🟢 Return
+                                </button>
+                            </div>
+                        `;
+                    }).join('');
+                }
+            } else {
+                if (outBanner) outBanner.classList.add('hidden');
+            }
+
+            // Compact Alphabetical Pass Grid
+            if (filteredRoster.length === 0) {
+                grid.innerHTML = `<div class="col-span-full py-8 text-center text-slate-500 font-bold text-xs">No matching students found.</div>`;
+                return;
+            }
+
+            grid.innerHTML = filteredRoster.map(st => {
+                const isMax = st.passesUsed >= MAX_QUARTER_PASSES;
+                const isOut = !!st.outTimestamp;
+
+                let tokensHtml = '';
+                for (let i = 1; i <= MAX_QUARTER_PASSES; i++) {
+                    if (i <= st.passesUsed) {
+                        tokensHtml += `<span title="Pass Used" class="text-xs">🎟️</span>`;
+                    } else {
+                        tokensHtml += `<span title="Pass Available" class="text-xs text-slate-700">⚪</span>`;
+                    }
+                }
+
+                return `
+                    <div class="bg-slate-950 border ${isOut ? 'border-amber-400 bg-amber-950/20' : isMax ? 'border-rose-500/60 bg-rose-950/20' : 'border-slate-800'} rounded-xl p-3 flex flex-col justify-between space-y-2 shadow hover:border-slate-700 transition-all">
+                        <div class="flex items-center justify-between">
+                            <span class="font-extrabold text-xs text-white truncate" title="${escapeHtml(st.name)}">${escapeHtml(st.name)}</span>
+                            <div class="flex items-center gap-1">
+                                <button onclick="window.adjustPassCount('${st.id}', -1)" ${st.passesUsed <= 0 ? 'disabled' : ''} class="w-4 h-4 bg-slate-800 hover:bg-slate-700 disabled:opacity-30 text-amber-300 text-[10px] font-black rounded flex items-center justify-center">-</button>
+                                <button onclick="window.adjustPassCount('${st.id}', 1)" ${st.passesUsed >= MAX_QUARTER_PASSES ? 'disabled' : ''} class="w-4 h-4 bg-slate-800 hover:bg-slate-700 disabled:opacity-30 text-amber-300 text-[10px] font-black rounded flex items-center justify-center">+</button>
+                            </div>
+                        </div>
+
+                        <div class="flex items-center justify-between border-t border-b border-slate-800/80 py-1 px-0.5">
+                            <div class="flex items-center gap-0.5">${tokensHtml}</div>
+                            <span class="text-[10px] font-black ${isMax ? 'text-rose-400' : 'text-amber-300'}">
+                                ${st.passesUsed}/${MAX_QUARTER_PASSES}
+                            </span>
+                        </div>
+
+                        ${isOut ? `
+                            <button onclick="window.returnStudentFromPass('${st.id}')" class="w-full py-1 bg-emerald-500 hover:bg-emerald-400 text-black font-extrabold text-[11px] rounded-lg shadow">
+                                🟢 Return
+                            </button>
+                        ` : isMax ? `
+                            <button disabled class="w-full py-1 bg-rose-950 text-rose-400 border border-rose-500/40 font-extrabold text-[10px] rounded-lg cursor-not-allowed">
+                                🚫 Limit Reached
+                            </button>
+                        ` : `
+                            <button onclick="window.issuePass('${st.id}')" class="w-full py-1 bg-slate-800 hover:bg-amber-400 hover:text-black text-amber-300 font-extrabold text-[11px] rounded-lg border border-amber-500/30 transition-all">
+                                🎟️ Issue Pass
+                            </button>
+                        `}
+                    </div>
+                `;
+            }).join('');
+        };
+
+        window.openResetPassesModal = function openResetPassesModal() {
+            const sec = getActiveSection();
+            const nameEl = document.getElementById('resetClassSectionName');
+            if (nameEl && sec) nameEl.textContent = sec.name;
+            document.getElementById('resetPassesModal')?.classList.remove('hidden');
+        };
+
+        window.closeResetPassesModal = function closeResetPassesModal() {
+            document.getElementById('resetPassesModal')?.classList.add('hidden');
+        };
+
+        window.confirmResetQuarterPasses = function confirmResetQuarterPasses() {
+            const sec = getActiveSection();
+            if (sec) {
+                sec.roster.forEach(st => {
+                    st.passesUsed = 0;
+                    st.outTimestamp = null;
+                });
+                saveState();
+                renderPasses();
+                closeResetPassesModal();
+                showToast(`Quarter passes reset for ${sec.name}!`);
+            }
+        };
+
+
+        // --- BACKUP & EMBED EXPORT HELPERS ---
+        window.copyGroupsToClipboard = function copyGroupsToClipboard() {
+            const sec = getActiveSection();
+            if (!sec || !sec.groups) return;
+
+            let text = `🐾 ${sec.name} - Color Groups\n\n`;
+            sec.groups.forEach(g => {
+                text += `=== ${g.name} (${g.students.length}) ===\n`;
+                g.students.forEach(st => { text += `• ${st.name}\n`; });
+                text += `\n`;
+            });
+
+            copyTextToClipboard(text, "Groups copied to clipboard!");
+        };
+
+        window.exportGroupsCSV = function exportGroupsCSV() {
+            const sec = getActiveSection();
+            if (!sec || !sec.groups) return;
+
+            let csv = "Group Name,Student Name\n";
+            sec.groups.forEach(g => {
+                g.students.forEach(st => {
+                    csv += `"${g.name}","${st.name}"\n`;
+                });
+            });
+
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${sec.name.replace(/[^a-z0-9]/gi, '_')}_Groups.csv`;
+            a.click();
+            URL.revokeObjectURL(url);
+            showToast("CSV file exported!");
+        };
+
+        window.printGroups = function printGroups() {
+            window.print();
+        };
+
+        window.copyEmbedLink = function copyEmbedLink() {
+            copyTextToClipboard(window.location.href, "Link copied! Ready to embed in Lumio, Google Slides, or Canvas.");
+        };
+
+        function copyTextToClipboard(text, successMsg) {
+            const textArea = document.createElement("textarea");
+            textArea.value = text;
+            textArea.style.position = "fixed";
+            textArea.style.opacity = "0";
+            document.body.appendChild(textArea);
+            textArea.focus();
+            textArea.select();
+            try {
+                document.execCommand('copy');
+                showToast(successMsg);
+            } catch (err) {
+                showToast("Copy failed", "error");
+            }
+            document.body.removeChild(textArea);
+        }
+
+        window.exportDataBackup = function exportDataBackup() {
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(appState, null, 2));
+            const downloadAnchor = document.createElement('a');
+            downloadAnchor.setAttribute("href", dataStr);
+            downloadAnchor.setAttribute("download", `Tiger_GroupCraft_Backup_${new Date().toISOString().slice(0,10)}.json`);
+            document.body.appendChild(downloadAnchor);
+            downloadAnchor.click();
+            downloadAnchor.remove();
+            showToast("Data backup file exported!");
+        };
+
+        window.importDataBackup = function importDataBackup(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(evt) {
+                try {
+                    const imported = JSON.parse(evt.target.result);
+                    if (imported && imported.sections) {
+                        appState = imported;
+                        saveState();
+                        renderSectionDropdown();
+                        renderRoster();
+                        renderGroups();
+                        renderPasses();
+                        syncSettingsUI();
+                        showToast("Data backup successfully restored!");
+                    }
+                } catch (err) {
+                    showToast("Invalid backup JSON file!", "error");
+                }
+            };
+            reader.readAsText(file);
+        };
+
+
+        // --- APPLICATION INITIALIZATION ---
+        window.onload = async function() {
+            await loadState();
+            renderSectionDropdown();
+            renderRoster();
+            renderGroups();
+            syncSettingsUI();
+
+            // Auto-recalculate projector layout on screen resize to prevent clipping
+            window.addEventListener('resize', () => {
+                const overlay = document.getElementById('projectorOverlay');
+                if (overlay && !overlay.classList.contains('hidden')) {
+                    renderProjectorGroups();
+                }
+            });
+
+            // Refresh live pass timers periodically
+            setInterval(() => {
+                if (!document.getElementById('tab-content-passes')?.classList.contains('hidden')) {
+                    renderPasses();
+                }
+            }, 30000);
+        };
+    </script>
+</body>
+</html>

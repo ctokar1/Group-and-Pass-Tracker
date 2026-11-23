@@ -1,0 +1,6 @@
+{
+  "name": "Tiger GroupCraft & Pass Tracker - CHUH Heights High",
+  "description": "Live classroom hall pass tracker, color group generator, roster manager, and projector display synced via Google Sign-In for CHUH Heights High.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

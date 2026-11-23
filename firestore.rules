@@ -1,0 +1,296 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Safety Net: Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- GLOBAL PRIMITIVES & HELPERS ---
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAuthorizedTeacher() {
+      return isSignedIn()
+        && request.auth.token.email != null
+        && request.auth.token.email_verified == true
+        && request.auth.token.email.lower() in ['c_tokar@chuh.org', 'j_kravitz@chuh.org'];
+    }
+
+    function isSharedWorkspace(workspaceId) {
+      return workspaceId == 'chuh_shared';
+    }
+
+    // --- ENTITY VALIDATION BLUEPRINTS ---
+    function isValidWorkspace(data, workspaceId) {
+      return data.keys().hasAll(['id', 'activeSectionId', 'createdBy', 'updatedBy', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'activeSectionId', 'createdBy', 'updatedBy', 'createdAt', 'updatedAt'])
+        && data.id == workspaceId
+        && isValidId(data.id)
+        && isValidId(data.activeSectionId)
+        && data.createdBy is string && data.createdBy.size() >= 3 && data.createdBy.size() <= 256
+        && data.updatedBy is string && data.updatedBy.size() >= 3 && data.updatedBy.size() <= 256
+        && data.updatedBy == request.auth.token.email.lower()
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidGroupEntry(grp) {
+      return grp is map
+        && grp.keys().hasAll(['id', 'colorIndex', 'name', 'studentIds'])
+        && grp.keys().hasOnly(['id', 'colorIndex', 'name', 'studentIds'])
+        && isValidId(grp.id)
+        && grp.colorIndex is int && grp.colorIndex >= 0 && grp.colorIndex <= 7
+        && grp.name is string && grp.name.size() >= 1 && grp.name.size() <= 60
+        && grp.studentIds is list && grp.studentIds.size() <= 100
+        && (grp.studentIds.size() == 0 || isValidId(grp.studentIds[0]));
+    }
+
+    function isValidSection(data, workspaceId, sectionId) {
+      return data.keys().hasAll([
+          'id', 'workspaceId', 'name', 'order', 'quickSize', 'quickCount',
+          'forceExactCount', 'groups', 'createdBy', 'updatedBy', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'workspaceId', 'name', 'order', 'quickSize', 'quickCount',
+          'forceExactCount', 'groups', 'createdBy', 'updatedBy', 'createdAt', 'updatedAt'
+        ])
+        && data.id == sectionId
+        && data.workspaceId == workspaceId
+        && isValidId(data.id)
+        && isValidId(data.workspaceId)
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 120
+        && data.order is int && data.order >= 0 && data.order <= 10000
+        && data.quickSize is int && data.quickSize >= 0 && data.quickSize <= 12
+        && data.quickCount is int && data.quickCount >= 0 && data.quickCount <= 8
+        && data.forceExactCount is bool
+        && data.groups is list && data.groups.size() <= 8
+        && (data.groups.size() == 0 || isValidGroupEntry(data.groups[0]))
+        && data.createdBy is string && data.createdBy.size() >= 3 && data.createdBy.size() <= 256
+        && data.updatedBy is string && data.updatedBy.size() >= 3 && data.updatedBy.size() <= 256
+        && data.updatedBy == request.auth.token.email.lower()
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidStudent(data, workspaceId, sectionId, studentId) {
+      return data.keys().hasAll([
+          'id', 'workspaceId', 'sectionId', 'name', 'present',
+          'passesUsed', 'outTimestamp', 'createdBy', 'updatedBy', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'workspaceId', 'sectionId', 'name', 'present',
+          'passesUsed', 'outTimestamp', 'createdBy', 'updatedBy', 'createdAt', 'updatedAt'
+        ])
+        && data.id == studentId
+        && data.workspaceId == workspaceId
+        && data.sectionId == sectionId
+        && isValidId(data.id)
+        && isValidId(data.workspaceId)
+        && isValidId(data.sectionId)
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 100
+        && data.present is bool
+        && data.passesUsed is int && data.passesUsed >= 0 && data.passesUsed <= 4
+        && (data.outTimestamp is int || data.outTimestamp is float)
+        && data.outTimestamp >= 0
+        && data.createdBy is string && data.createdBy.size() >= 3 && data.createdBy.size() <= 256
+        && data.updatedBy is string && data.updatedBy.size() >= 3 && data.updatedBy.size() <= 256
+        && data.updatedBy == request.auth.token.email.lower()
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidPassLog(data, workspaceId, logId) {
+      return data.keys().hasAll([
+          'id', 'workspaceId', 'sectionId', 'sectionName', 'studentId',
+          'studentName', 'action', 'passesUsedAfter', 'durationMinutes', 'actorEmail', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'workspaceId', 'sectionId', 'sectionName', 'studentId',
+          'studentName', 'action', 'passesUsedAfter', 'durationMinutes', 'actorEmail', 'createdAt'
+        ])
+        && data.id == logId
+        && data.workspaceId == workspaceId
+        && isValidId(data.id)
+        && isValidId(data.workspaceId)
+        && isValidId(data.sectionId)
+        && data.sectionName is string && data.sectionName.size() >= 1 && data.sectionName.size() <= 120
+        && isValidId(data.studentId)
+        && data.studentName is string && data.studentName.size() >= 1 && data.studentName.size() <= 100
+        && data.action in ['issued', 'returned', 'adjusted', 'reset']
+        && data.passesUsedAfter is int && data.passesUsedAfter >= 0 && data.passesUsedAfter <= 4
+        && (data.durationMinutes is int || data.durationMinutes is float)
+        && data.durationMinutes >= 0 && data.durationMinutes <= 10080
+        && data.actorEmail is string && data.actorEmail.size() >= 3 && data.actorEmail.size() <= 256
+        && data.actorEmail == request.auth.token.email.lower()
+        && data.createdAt is timestamp;
+    }
+
+    // --- COLLECTION MATCH BLOCKS ---
+    match /workspaces/{workspaceId} {
+      allow get: if isAuthorizedTeacher()
+        && isValidId(workspaceId)
+        && isSharedWorkspace(workspaceId);
+
+      allow list: if false;
+
+      allow create: if isAuthorizedTeacher()
+        && isValidId(workspaceId)
+        && isSharedWorkspace(workspaceId)
+        && isValidWorkspace(incoming(), workspaceId)
+        && incoming().createdBy == request.auth.token.email.lower()
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isAuthorizedTeacher()
+        && isValidId(workspaceId)
+        && isSharedWorkspace(workspaceId)
+        && isValidWorkspace(incoming(), workspaceId)
+        && incoming().id == existing().id
+        && incoming().createdBy == existing().createdBy
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['activeSectionId', 'updatedBy', 'updatedAt']);
+
+      allow delete: if false;
+
+      // Sections Subcollection
+      match /sections/{sectionId} {
+        allow get: if isAuthorizedTeacher()
+          && isValidId(workspaceId)
+          && isSharedWorkspace(workspaceId)
+          && isValidId(sectionId)
+          && exists(/databases/$(database)/documents/workspaces/$(workspaceId));
+
+        allow list: if isAuthorizedTeacher()
+          && isSharedWorkspace(workspaceId)
+          && existing().workspaceId == workspaceId;
+
+        allow create: if isAuthorizedTeacher()
+          && isValidId(workspaceId)
+          && isSharedWorkspace(workspaceId)
+          && isValidId(sectionId)
+          && isValidSection(incoming(), workspaceId, sectionId)
+          && incoming().createdBy == request.auth.token.email.lower()
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && existsAfter(/databases/$(database)/documents/workspaces/$(workspaceId));
+
+        allow update: if isAuthorizedTeacher()
+          && isValidId(workspaceId)
+          && isSharedWorkspace(workspaceId)
+          && isValidId(sectionId)
+          && isValidSection(incoming(), workspaceId, sectionId)
+          && incoming().id == existing().id
+          && incoming().workspaceId == existing().workspaceId
+          && incoming().createdBy == existing().createdBy
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && exists(/databases/$(database)/documents/workspaces/$(workspaceId))
+          && (
+            incoming().diff(existing()).affectedKeys().hasOnly(['name', 'updatedBy', 'updatedAt']) ||
+            incoming().diff(existing()).affectedKeys().hasOnly(['quickSize', 'quickCount', 'forceExactCount', 'updatedBy', 'updatedAt']) ||
+            incoming().diff(existing()).affectedKeys().hasOnly(['groups', 'updatedBy', 'updatedAt']) ||
+            incoming().diff(existing()).affectedKeys().hasOnly(['name', 'order', 'quickSize', 'quickCount', 'forceExactCount', 'groups', 'updatedBy', 'updatedAt'])
+          );
+
+        allow delete: if isAuthorizedTeacher()
+          && isValidId(workspaceId)
+          && isSharedWorkspace(workspaceId)
+          && isValidId(sectionId)
+          && exists(/databases/$(database)/documents/workspaces/$(workspaceId));
+
+        // Students Subcollection
+        match /students/{studentId} {
+          allow get: if isAuthorizedTeacher()
+            && isValidId(workspaceId)
+            && isSharedWorkspace(workspaceId)
+            && isValidId(sectionId)
+            && isValidId(studentId)
+            && exists(/databases/$(database)/documents/workspaces/$(workspaceId)/sections/$(sectionId));
+
+          allow list: if isAuthorizedTeacher()
+            && isSharedWorkspace(workspaceId)
+            && existing().sectionId == sectionId;
+
+          allow create: if isAuthorizedTeacher()
+            && isValidId(workspaceId)
+            && isSharedWorkspace(workspaceId)
+            && isValidId(sectionId)
+            && isValidId(studentId)
+            && isValidStudent(incoming(), workspaceId, sectionId, studentId)
+            && incoming().createdBy == request.auth.token.email.lower()
+            && incoming().createdAt == request.time
+            && incoming().updatedAt == request.time
+            && existsAfter(/databases/$(database)/documents/workspaces/$(workspaceId)/sections/$(sectionId));
+
+          allow update: if isAuthorizedTeacher()
+            && isValidId(workspaceId)
+            && isSharedWorkspace(workspaceId)
+            && isValidId(sectionId)
+            && isValidId(studentId)
+            && isValidStudent(incoming(), workspaceId, sectionId, studentId)
+            && incoming().id == existing().id
+            && incoming().workspaceId == existing().workspaceId
+            && incoming().sectionId == existing().sectionId
+            && incoming().createdBy == existing().createdBy
+            && incoming().createdAt == existing().createdAt
+            && incoming().updatedAt == request.time
+            && exists(/databases/$(database)/documents/workspaces/$(workspaceId)/sections/$(sectionId))
+            && (
+              // Action: Toggle attendance
+              incoming().diff(existing()).affectedKeys().hasOnly(['present', 'updatedBy', 'updatedAt']) ||
+              // Action: Issue, return, adjust, or reset hall pass
+              incoming().diff(existing()).affectedKeys().hasOnly(['passesUsed', 'outTimestamp', 'updatedBy', 'updatedAt']) ||
+              // Action: Rename student
+              incoming().diff(existing()).affectedKeys().hasOnly(['name', 'updatedBy', 'updatedAt'])
+            );
+
+          allow delete: if isAuthorizedTeacher()
+            && isValidId(workspaceId)
+            && isSharedWorkspace(workspaceId)
+            && isValidId(sectionId)
+            && isValidId(studentId)
+            && exists(/databases/$(database)/documents/workspaces/$(workspaceId)/sections/$(sectionId));
+        }
+      }
+
+      // Pass Logs Subcollection (Append-Only Audit Trail)
+      match /passLogs/{logId} {
+        allow get: if isAuthorizedTeacher()
+          && isValidId(workspaceId)
+          && isSharedWorkspace(workspaceId)
+          && isValidId(logId)
+          && exists(/databases/$(database)/documents/workspaces/$(workspaceId));
+
+        allow list: if isAuthorizedTeacher()
+          && isSharedWorkspace(workspaceId)
+          && existing().workspaceId == workspaceId;
+
+        allow create: if isAuthorizedTeacher()
+          && isValidId(workspaceId)
+          && isSharedWorkspace(workspaceId)
+          && isValidId(logId)
+          && isValidPassLog(incoming(), workspaceId, logId)
+          && incoming().createdAt == request.time
+          && existsAfter(/databases/$(database)/documents/workspaces/$(workspaceId));
+
+        allow update, delete: if false;
+      }
+    }
+  }
+}
