@@ -42,6 +42,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
     { id: 'roster', label: 'Class Roster', emoji: '📋' },
     { id: 'settings', label: 'Group Rules & Sections', emoji: '⚙️' },
     { id: 'passes', label: 'Hall Passes', emoji: '🚽' },
+    { id: 'history', label: 'Pass History', emoji: '📜' },
   ];
 
   return (

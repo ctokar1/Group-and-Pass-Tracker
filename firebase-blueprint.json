@@ -266,6 +266,18 @@
           "type": "number",
           "description": "Elapsed minutes out when returned (0 otherwise)."
         },
+        "durationSeconds": {
+          "type": "number",
+          "description": "Exact elapsed seconds out when returned (0 otherwise)."
+        },
+        "takenAt": {
+          "type": "number",
+          "description": "Epoch milliseconds when the pass was taken (0 if not applicable)."
+        },
+        "returnedAt": {
+          "type": "number",
+          "description": "Epoch milliseconds when the student returned (0 if not applicable)."
+        },
         "actorEmail": {
           "type": "string",
           "description": "Verified teacher email who performed the action.",

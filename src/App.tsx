@@ -49,6 +49,7 @@ import { ColorGroupsTab } from './components/ColorGroupsTab';
 import { ClassRosterTab } from './components/ClassRosterTab';
 import { GroupRulesTab } from './components/GroupRulesTab';
 import { HallPassesTab } from './components/HallPassesTab';
+import { PassHistoryTab } from './components/PassHistoryTab';
 import { ProjectorOverlay } from './components/ProjectorOverlay';
 import {
   AddSectionModal,
@@ -72,7 +73,13 @@ export default function App() {
 
   const [activeTab, setActiveTab] = useState<ActiveTab>(() => {
     const saved = sessionStorage.getItem('tiger_active_tab');
-    if (saved === 'groups' || saved === 'roster' || saved === 'settings' || saved === 'passes') {
+    if (
+      saved === 'groups' ||
+      saved === 'roster' ||
+      saved === 'settings' ||
+      saved === 'passes' ||
+      saved === 'history'
+    ) {
       return saved;
     }
     return 'passes';
@@ -627,6 +634,16 @@ export default function App() {
             onReturnStudent={handleReturnStudent}
             onAdjustPassCount={handleAdjustPassCount}
             onOpenResetModal={() => setResetModalOpen(true)}
+            onViewFullHistory={() => handleTabChange('history')}
+          />
+        )}
+
+        {activeTab === 'history' && (
+          <PassHistoryTab
+            section={activeSection}
+            students={students}
+            passLogs={passLogs}
+            onReturnStudent={handleReturnStudent}
           />
         )}
       </main>

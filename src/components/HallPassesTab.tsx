@@ -18,6 +18,8 @@ import {
   type StudentDoc,
 } from '../types/classroom';
 
+import { formatDurationExact } from './PassHistoryTab';
+
 interface HallPassesTabProps {
   section: ClassSectionDoc | undefined;
   students: StudentDoc[];
@@ -26,20 +28,25 @@ interface HallPassesTabProps {
   onReturnStudent: (student: StudentDoc) => Promise<void>;
   onAdjustPassCount: (student: StudentDoc, delta: number) => Promise<void>;
   onOpenResetModal: () => void;
+  onViewFullHistory: () => void;
 }
 
-function formatLogTime(createdAt: unknown): string {
-  if (!createdAt) return 'Just now';
-  if (typeof createdAt === 'object' && createdAt !== null && 'toDate' in createdAt) {
-    const dt = (createdAt as { toDate: () => Date }).toDate();
-    return dt.toLocaleString([], {
-      month: 'short',
-      day: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit',
-    });
-  }
-  return 'Just now';
+function formatLogDateTime(log: PassLogDoc): string {
+  const ms =
+    log.action === 'issued' && typeof log.takenAt === 'number' && log.takenAt > 0
+      ? log.takenAt
+      : log.action === 'returned' && typeof log.returnedAt === 'number' && log.returnedAt > 0
+      ? log.returnedAt
+      : log.createdAt && typeof log.createdAt === 'object' && 'toMillis' in log.createdAt
+      ? (log.createdAt as { toMillis: () => number }).toMillis()
+      : Date.now();
+  return new Date(ms).toLocaleString([], {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
 }
 
 export const HallPassesTab: React.FC<HallPassesTabProps> = ({
@@ -50,14 +57,15 @@ export const HallPassesTab: React.FC<HallPassesTabProps> = ({
   onReturnStudent,
   onAdjustPassCount,
   onOpenResetModal,
+  onViewFullHistory,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [showAllLogs, setShowAllLogs] = useState(false);
 
-  // Live ticker every 15 seconds for elapsed out-of-room timers
+  // Live ticker every 1 second for accurate time-out counters
   useEffect(() => {
-    const id = window.setInterval(() => setNowMs(Date.now()), 15000);
+    const id = window.setInterval(() => setNowMs(Date.now()), 1000);
     return () => window.clearInterval(id);
   }, []);
 
@@ -126,8 +134,8 @@ export const HallPassesTab: React.FC<HallPassesTabProps> = ({
 
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
             {currentlyOut.map((st) => {
-              const elapsedMins = Math.max(0, Math.floor((nowMs - st.outTimestamp) / 60000));
-              const isOverdue = elapsedMins >= 7;
+              const elapsedSeconds = Math.max(0, Math.floor((nowMs - st.outTimestamp) / 1000));
+              const isOverdue = elapsedSeconds >= 420;
               return (
                 <div
                   key={st.id}
@@ -143,7 +151,7 @@ export const HallPassesTab: React.FC<HallPassesTabProps> = ({
                       }`}
                     >
                       <Clock className="w-3 h-3 shrink-0" />
-                      Out {elapsedMins}m ago
+                      Out {formatDurationExact(elapsedSeconds)}
                     </span>
                   </div>
                   <button
@@ -170,7 +178,7 @@ export const HallPassesTab: React.FC<HallPassesTabProps> = ({
           filteredRoster.map((st) => {
             const isMax = st.passesUsed >= LIMITS.MAX_PASSES;
             const isOut = st.outTimestamp > 0;
-            const elapsedMins = isOut ? Math.max(0, Math.floor((nowMs - st.outTimestamp) / 60000)) : 0;
+            const elapsedSeconds = isOut ? Math.max(0, Math.floor((nowMs - st.outTimestamp) / 1000)) : 0;
 
             return (
               <div
@@ -239,10 +247,10 @@ export const HallPassesTab: React.FC<HallPassesTabProps> = ({
                 {isOut ? (
                   <button
                     onClick={() => onReturnStudent(st)}
-                    className="w-full py-1.5 bg-emerald-500 hover:bg-emerald-400 text-black font-extrabold text-[11px] rounded-lg flex items-center justify-center gap-1 cursor-pointer"
+                    className="w-full py-1.5 bg-emerald-500 hover:bg-emerald-400 text-black font-extrabold text-[11px] rounded-lg flex items-center justify-center gap-1 font-mono-tabular cursor-pointer"
                   >
                     <CheckCircle2 className="w-3.5 h-3.5" />
-                    Return ({elapsedMins}m)
+                    Return ({formatDurationExact(elapsedSeconds)})
                   </button>
                 ) : isMax ? (
                   <button
@@ -279,22 +287,30 @@ export const HallPassesTab: React.FC<HallPassesTabProps> = ({
               · Synced across c_tokar@chuh.org &amp; J_kravitz@chuh.org
             </span>
           </div>
-          <div className="flex items-center gap-1 p-1 bg-slate-950 border border-slate-800 rounded-lg text-xs">
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1 p-1 bg-slate-950 border border-slate-800 rounded-lg text-xs">
+              <button
+                onClick={() => setShowAllLogs(false)}
+                className={`px-2.5 py-1 rounded-md font-semibold transition-colors cursor-pointer ${
+                  !showAllLogs ? 'bg-amber-400 text-black' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                This Period
+              </button>
+              <button
+                onClick={() => setShowAllLogs(true)}
+                className={`px-2.5 py-1 rounded-md font-semibold transition-colors cursor-pointer ${
+                  showAllLogs ? 'bg-amber-400 text-black' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                All Periods
+              </button>
+            </div>
             <button
-              onClick={() => setShowAllLogs(false)}
-              className={`px-2.5 py-1 rounded-md font-semibold transition-colors cursor-pointer ${
-                !showAllLogs ? 'bg-amber-400 text-black' : 'text-slate-400 hover:text-white'
-              }`}
+              onClick={onViewFullHistory}
+              className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold text-xs rounded-lg border border-slate-700 whitespace-nowrap cursor-pointer"
             >
-              This Period
-            </button>
-            <button
-              onClick={() => setShowAllLogs(true)}
-              className={`px-2.5 py-1 rounded-md font-semibold transition-colors cursor-pointer ${
-                showAllLogs ? 'bg-amber-400 text-black' : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              All Periods
+              Full History →
             </button>
           </div>
         </div>
@@ -310,45 +326,51 @@ export const HallPassesTab: React.FC<HallPassesTabProps> = ({
                 <tr>
                   <th className="py-2 pr-3 font-semibold">Student</th>
                   <th className="py-2 px-3 font-semibold">Period</th>
-                  <th className="py-2 px-3 font-semibold">Action</th>
+                  <th className="py-2 px-3 font-semibold">Action &amp; Time Out</th>
                   <th className="py-2 px-3 font-semibold text-right">Pass Balance</th>
                   <th className="py-2 px-3 font-semibold">Teacher</th>
-                  <th className="py-2 pl-3 font-semibold text-right">Time</th>
+                  <th className="py-2 pl-3 font-semibold text-right">Date &amp; Time</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60">
-                {visibleLogs.slice(0, 30).map((log) => (
-                  <tr key={log.id} className="hover:bg-slate-950/60">
-                    <td className="py-2 pr-3 font-bold text-white whitespace-nowrap">{log.studentName}</td>
-                    <td className="py-2 px-3 text-slate-400 whitespace-nowrap">{log.sectionName}</td>
-                    <td className="py-2 px-3 whitespace-nowrap">
-                      <span
-                        className={`font-bold ${
-                          log.action === 'issued'
-                            ? 'text-amber-300'
-                            : log.action === 'returned'
-                            ? 'text-emerald-400'
-                            : log.action === 'reset'
-                            ? 'text-rose-400'
-                            : 'text-slate-300'
-                        }`}
-                      >
-                        {log.action === 'issued' && 'Issued Pass'}
-                        {log.action === 'returned' &&
-                          `Returned (${log.durationMinutes}m)`}
-                        {log.action === 'adjusted' && 'Adjusted Count'}
-                        {log.action === 'reset' && 'Quarter Reset'}
-                      </span>
-                    </td>
-                    <td className="py-2 px-3 text-right font-mono-tabular text-slate-200 whitespace-nowrap">
-                      {log.passesUsedAfter}/{MAX_QUARTER_PASSES}
-                    </td>
-                    <td className="py-2 px-3 text-slate-400 whitespace-nowrap">{log.actorEmail}</td>
-                    <td className="py-2 pl-3 text-right font-mono-tabular text-slate-400 whitespace-nowrap">
-                      {formatLogTime(log.createdAt)}
-                    </td>
-                  </tr>
-                ))}
+                {visibleLogs.slice(0, 30).map((log) => {
+                  const secs =
+                    typeof log.durationSeconds === 'number'
+                      ? log.durationSeconds
+                      : log.durationMinutes * 60;
+                  return (
+                    <tr key={log.id} className="hover:bg-slate-950/60">
+                      <td className="py-2 pr-3 font-bold text-white whitespace-nowrap">{log.studentName}</td>
+                      <td className="py-2 px-3 text-slate-400 whitespace-nowrap">{log.sectionName}</td>
+                      <td className="py-2 px-3 whitespace-nowrap">
+                        <span
+                          className={`font-bold ${
+                            log.action === 'issued'
+                              ? 'text-amber-300'
+                              : log.action === 'returned'
+                              ? 'text-emerald-400'
+                              : log.action === 'reset'
+                              ? 'text-rose-400'
+                              : 'text-slate-300'
+                          }`}
+                        >
+                          {log.action === 'issued' && 'Issued Pass'}
+                          {log.action === 'returned' &&
+                            `Returned (${formatDurationExact(secs)} out)`}
+                          {log.action === 'adjusted' && 'Adjusted Count'}
+                          {log.action === 'reset' && 'Quarter Reset'}
+                        </span>
+                      </td>
+                      <td className="py-2 px-3 text-right font-mono-tabular text-slate-200 whitespace-nowrap">
+                        {log.passesUsedAfter}/{MAX_QUARTER_PASSES}
+                      </td>
+                      <td className="py-2 px-3 text-slate-400 whitespace-nowrap">{log.actorEmail}</td>
+                      <td className="py-2 pl-3 text-right font-mono-tabular text-slate-400 whitespace-nowrap">
+                        {formatLogDateTime(log)}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

@@ -231,7 +231,7 @@ export function subscribePassLogs(
       const list = snap.docs
         .map((d) => d.data() as PassLogDoc)
         .sort((a, b) => getTimestampMillis(b.createdAt) - getTimestampMillis(a.createdAt))
-        .slice(0, 60);
+        .slice(0, 500);
       onData(list);
     },
     (err) => {
@@ -542,6 +542,9 @@ function buildPassLogPayload(params: {
   action: PassAction;
   passesUsedAfter: number;
   durationMinutes: number;
+  durationSeconds: number;
+  takenAt: number;
+  returnedAt: number;
   email: string;
 }) {
   return {
@@ -557,6 +560,12 @@ function buildPassLogPayload(params: {
       0,
       Math.min(LIMITS.MAX_DURATION_MINUTES, Math.round(params.durationMinutes))
     ),
+    durationSeconds: Math.max(
+      0,
+      Math.min(LIMITS.MAX_DURATION_SECONDS, Math.round(params.durationSeconds))
+    ),
+    takenAt: Math.max(0, Math.round(params.takenAt)),
+    returnedAt: Math.max(0, Math.round(params.returnedAt)),
     actorEmail: params.email,
     createdAt: serverTimestamp(),
   };
@@ -594,6 +603,9 @@ export async function issueStudentPass(
         action: 'issued',
         passesUsedAfter: nextCount,
         durationMinutes: 0,
+        durationSeconds: 0,
+        takenAt: nowMs,
+        returnedAt: 0,
         email,
       })
     );
@@ -610,8 +622,11 @@ export async function returnStudentPass(
   teacherEmail: string
 ): Promise<void> {
   const email = teacherEmail.trim().toLowerCase().slice(0, LIMITS.EMAIL_MAX);
-  const elapsedMins =
-    student.outTimestamp > 0 ? Math.max(0, Math.round((Date.now() - student.outTimestamp) / 60000)) : 0;
+  const nowMs = Date.now();
+  const takenAtMs = student.outTimestamp > 0 ? student.outTimestamp : nowMs;
+  const elapsedSeconds =
+    student.outTimestamp > 0 ? Math.max(0, Math.round((nowMs - student.outTimestamp) / 1000)) : 0;
+  const elapsedMins = Math.round(elapsedSeconds / 60);
   const logId = generateId('log');
   const path = `${SECTIONS_PATH}/${sectionId}/students/${student.id}`;
 
@@ -634,6 +649,9 @@ export async function returnStudentPass(
         action: 'returned',
         passesUsedAfter: student.passesUsed,
         durationMinutes: elapsedMins,
+        durationSeconds: elapsedSeconds,
+        takenAt: takenAtMs,
+        returnedAt: nowMs,
         email,
       })
     );
@@ -676,6 +694,9 @@ export async function adjustStudentPassCount(
         action: 'adjusted',
         passesUsedAfter: nextCount,
         durationMinutes: 0,
+        durationSeconds: 0,
+        takenAt: Date.now(),
+        returnedAt: 0,
         email,
       })
     );
@@ -716,6 +737,9 @@ export async function resetQuarterPasses(
         action: 'reset',
         passesUsedAfter: 0,
         durationMinutes: 0,
+        durationSeconds: 0,
+        takenAt: Date.now(),
+        returnedAt: 0,
         email,
       })
     );

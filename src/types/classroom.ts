@@ -16,6 +16,7 @@ export const LIMITS = {
   MAX_GROUP_STUDENTS: 100,
   MAX_PASSES: 4,
   MAX_DURATION_MINUTES: 10080,
+  MAX_DURATION_SECONDS: 604800,
   ID_PATTERN: /^[a-zA-Z0-9_-]+$/,
 } as const;
 
@@ -95,11 +96,14 @@ export interface PassLogDoc {
   action: PassAction;
   passesUsedAfter: number;
   durationMinutes: number;
+  durationSeconds?: number;
+  takenAt?: number;
+  returnedAt?: number;
   actorEmail: string;
   createdAt?: unknown;
 }
 
-export type ActiveTab = 'groups' | 'roster' | 'settings' | 'passes';
+export type ActiveTab = 'groups' | 'roster' | 'settings' | 'passes' | 'history';
 
 export interface ToastMessage {
   id: string;

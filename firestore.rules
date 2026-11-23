@@ -121,7 +121,8 @@ service cloud.firestore {
         ])
         && data.keys().hasOnly([
           'id', 'workspaceId', 'sectionId', 'sectionName', 'studentId',
-          'studentName', 'action', 'passesUsedAfter', 'durationMinutes', 'actorEmail', 'createdAt'
+          'studentName', 'action', 'passesUsedAfter', 'durationMinutes', 'actorEmail', 'createdAt',
+          'takenAt', 'returnedAt', 'durationSeconds'
         ])
         && data.id == logId
         && data.workspaceId == workspaceId
@@ -135,6 +136,9 @@ service cloud.firestore {
         && data.passesUsedAfter is int && data.passesUsedAfter >= 0 && data.passesUsedAfter <= 4
         && (data.durationMinutes is int || data.durationMinutes is float)
         && data.durationMinutes >= 0 && data.durationMinutes <= 10080
+        && (!('durationSeconds' in data) || ((data.durationSeconds is int || data.durationSeconds is float) && data.durationSeconds >= 0 && data.durationSeconds <= 604800))
+        && (!('takenAt' in data) || ((data.takenAt is int || data.takenAt is float) && data.takenAt >= 0))
+        && (!('returnedAt' in data) || ((data.returnedAt is int || data.returnedAt is float) && data.returnedAt >= 0))
         && data.actorEmail is string && data.actorEmail.size() >= 3 && data.actorEmail.size() <= 256
         && data.actorEmail == request.auth.token.email.lower()
         && data.createdAt is timestamp;
