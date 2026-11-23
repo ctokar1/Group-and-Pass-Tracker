@@ -3,6 +3,7 @@ import {
   Cloud,
   LogOut,
   Monitor,
+  PictureInPicture2,
   Plus,
   Sparkles,
 } from 'lucide-react';
@@ -19,6 +20,7 @@ interface HeaderBarProps {
   onOpenAddSection: () => void;
   onOpenProjector: () => void;
   onOpenSpotlight: () => void;
+  onOpenPassPopout: () => void;
   onSignOut: () => void;
   onSwitchTab: (tab: ActiveTab) => void;
 }
@@ -34,6 +36,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
   onOpenAddSection,
   onOpenProjector,
   onOpenSpotlight,
+  onOpenPassPopout,
   onSignOut,
   onSwitchTab,
 }) => {
@@ -126,6 +129,14 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
             >
               <Sparkles className="w-4 h-4" />
               Spotlight
+            </button>
+            <button
+              onClick={onOpenPassPopout}
+              className="px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-emerald-300 font-bold text-xs sm:text-sm rounded-xl flex items-center gap-1.5 transition-all whitespace-nowrap shrink-0 cursor-pointer"
+              title="Pop out Restroom Status & Line window for another monitor"
+            >
+              <PictureInPicture2 className="w-4 h-4" />
+              Pass Window
             </button>
           </div>
         </div>

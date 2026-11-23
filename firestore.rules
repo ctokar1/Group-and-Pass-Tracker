@@ -67,7 +67,7 @@ service cloud.firestore {
         ])
         && data.keys().hasOnly([
           'id', 'workspaceId', 'name', 'order', 'quickSize', 'quickCount',
-          'forceExactCount', 'groups', 'createdBy', 'updatedBy', 'createdAt', 'updatedAt'
+          'forceExactCount', 'groups', 'passQueue', 'createdBy', 'updatedBy', 'createdAt', 'updatedAt'
         ])
         && data.id == sectionId
         && data.workspaceId == workspaceId
@@ -80,6 +80,11 @@ service cloud.firestore {
         && data.forceExactCount is bool
         && data.groups is list && data.groups.size() <= 8
         && (data.groups.size() == 0 || isValidGroupEntry(data.groups[0]))
+        && (!('passQueue' in data) || (
+          data.passQueue is list
+          && data.passQueue.size() <= 100
+          && (data.passQueue.size() == 0 || isValidId(data.passQueue[0]))
+        ))
         && data.createdBy is string && data.createdBy.size() >= 3 && data.createdBy.size() <= 256
         && data.updatedBy is string && data.updatedBy.size() >= 3 && data.updatedBy.size() <= 256
         && data.updatedBy == request.auth.token.email.lower()
@@ -209,7 +214,9 @@ service cloud.firestore {
             incoming().diff(existing()).affectedKeys().hasOnly(['name', 'updatedBy', 'updatedAt']) ||
             incoming().diff(existing()).affectedKeys().hasOnly(['quickSize', 'quickCount', 'forceExactCount', 'updatedBy', 'updatedAt']) ||
             incoming().diff(existing()).affectedKeys().hasOnly(['groups', 'updatedBy', 'updatedAt']) ||
-            incoming().diff(existing()).affectedKeys().hasOnly(['name', 'order', 'quickSize', 'quickCount', 'forceExactCount', 'groups', 'updatedBy', 'updatedAt'])
+            incoming().diff(existing()).affectedKeys().hasOnly(['passQueue', 'updatedBy', 'updatedAt']) ||
+            incoming().diff(existing()).affectedKeys().hasOnly(['groups', 'passQueue', 'updatedBy', 'updatedAt']) ||
+            incoming().diff(existing()).affectedKeys().hasOnly(['name', 'order', 'quickSize', 'quickCount', 'forceExactCount', 'groups', 'passQueue', 'updatedBy', 'updatedAt'])
           );
 
         allow delete: if isAuthorizedTeacher()

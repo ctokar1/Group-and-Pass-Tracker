@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ArrowLeftRight,
   Pause,
@@ -17,13 +17,21 @@ import {
 } from '../types/classroom';
 import { formatRuleSummary } from '../lib/grouping';
 
+export interface SpotlightWinnerInfo {
+  studentId?: string;
+  studentName: string;
+  groupName: string;
+}
+
 interface ProjectorOverlayProps {
   open: boolean;
   section: ClassSectionDoc | undefined;
   students: StudentDoc[];
-  spotlightWinner: { studentName: string; groupName: string } | null;
+  spotlightWinner: SpotlightWinnerInfo | null;
+  spotlightTrigger: number;
+  onSpotlightWinner: (winner: SpotlightWinnerInfo | null) => void;
+  onNotifyError: (msg: string) => void;
   onClose: () => void;
-  onOpenSpotlight: () => void;
   onOpenGroupRules: () => void;
   onReshuffle: () => void;
   onMoveStudent: (studentId: string, fromGroupId: string, toGroupId: string) => void;
@@ -36,8 +44,10 @@ export const ProjectorOverlay: React.FC<ProjectorOverlayProps> = ({
   section,
   students,
   spotlightWinner,
+  spotlightTrigger,
+  onSpotlightWinner,
+  onNotifyError,
   onClose,
-  onOpenSpotlight,
   onOpenGroupRules,
   onReshuffle,
   onMoveStudent,
@@ -46,7 +56,47 @@ export const ProjectorOverlay: React.FC<ProjectorOverlayProps> = ({
 }) => {
   const [showTimer, setShowTimer] = useState(false);
   const [secondsRemaining, setSecondsRemaining] = useState(300);
+  const [customDurationSeconds, setCustomDurationSeconds] = useState(300);
+  const [minInput, setMinInput] = useState('5');
+  const [secInput, setSecInput] = useState('00');
   const [timerRunning, setTimerRunning] = useState(false);
+
+  const [isSpotlighting, setIsSpotlighting] = useState(false);
+  const [highlightedStudentId, setHighlightedStudentId] = useState<string | null>(null);
+  const spotlightTimerRef = useRef<number | null>(null);
+  const lastTriggerRef = useRef<number>(0);
+
+  const clearSpotlightTimeout = useCallback(() => {
+    if (spotlightTimerRef.current !== null) {
+      window.clearTimeout(spotlightTimerRef.current);
+      spotlightTimerRef.current = null;
+    }
+  }, []);
+
+  // Sync minInput / secInput whenever secondsRemaining changes while paused or resetting
+  const syncInputsFromSeconds = useCallback((totalSecs: number) => {
+    const safe = Math.max(0, Math.floor(totalSecs));
+    setMinInput(String(Math.floor(safe / 60)));
+    setSecInput(String(safe % 60).padStart(2, '0'));
+  }, []);
+
+  const parseTypedTotalSeconds = useCallback((mRaw: string, sRaw: string): number => {
+    const m = Math.max(0, Math.min(999, parseInt(mRaw.replace(/\D/g, ''), 10) || 0));
+    const s = Math.max(0, Math.min(5999, parseInt(sRaw.replace(/\D/g, ''), 10) || 0));
+    return m * 60 + s;
+  }, []);
+
+  const applyTypedTimerValues = useCallback(
+    (mRaw: string, sRaw: string, updateCustomBase = true) => {
+      const total = parseTypedTotalSeconds(mRaw, sRaw);
+      setSecondsRemaining(total);
+      if (updateCustomBase && total > 0) {
+        setCustomDurationSeconds(total);
+      }
+      return total;
+    },
+    [parseTypedTotalSeconds]
+  );
 
   useEffect(() => {
     if (!timerRunning) return;
@@ -54,14 +104,95 @@ export const ProjectorOverlay: React.FC<ProjectorOverlayProps> = ({
       setSecondsRemaining((prev) => {
         if (prev <= 1) {
           setTimerRunning(false);
+          syncInputsFromSeconds(0);
           onTimerFinished();
           return 0;
         }
-        return prev - 1;
+        const next = prev - 1;
+        syncInputsFromSeconds(next);
+        return next;
       });
     }, 1000);
     return () => window.clearInterval(id);
-  }, [timerRunning, onTimerFinished]);
+  }, [timerRunning, onTimerFinished, syncInputsFromSeconds]);
+
+  const runProjectedSpotlight = useCallback(() => {
+    clearSpotlightTimeout();
+    const groups = section?.groups || [];
+    const sMap = new Map(students.map((s) => [s.id, s]));
+    const assigned: Array<{ studentId: string; studentName: string; groupName: string }> = [];
+    groups.forEach((g) => {
+      g.studentIds.forEach((sid) => {
+        const st = sMap.get(sid);
+        if (st) {
+          assigned.push({
+            studentId: st.id,
+            studentName: st.name,
+            groupName: g.name,
+          });
+        }
+      });
+    });
+
+    if (assigned.length === 0) {
+      onNotifyError('Generate groups first before picking a student!');
+      return;
+    }
+
+    onSpotlightWinner(null);
+    setIsSpotlighting(true);
+
+    const totalSteps = 20;
+    let step = 0;
+    let prevId: string | null = null;
+
+    const tick = () => {
+      step += 1;
+      let candidate = assigned[Math.floor(Math.random() * assigned.length)];
+      if (assigned.length > 1 && candidate.studentId === prevId) {
+        const alternatives = assigned.filter((a) => a.studentId !== prevId);
+        candidate = alternatives[Math.floor(Math.random() * alternatives.length)];
+      }
+      prevId = candidate.studentId;
+      setHighlightedStudentId(candidate.studentId);
+
+      if (step >= totalSteps) {
+        setIsSpotlighting(false);
+        spotlightTimerRef.current = null;
+        onSpotlightWinner({
+          studentId: candidate.studentId,
+          studentName: candidate.studentName,
+          groupName: candidate.groupName,
+        });
+        return;
+      }
+
+      // Smooth deceleration from 65ms up to 220ms
+      const progress = step / totalSteps;
+      const delay = Math.round(65 + progress * progress * 160);
+      spotlightTimerRef.current = window.setTimeout(tick, delay);
+    };
+
+    tick();
+  }, [section, students, clearSpotlightTimeout, onNotifyError, onSpotlightWinner]);
+
+  // Trigger projected spotlight automatically when opened via HeaderBar Spotlight button
+  useEffect(() => {
+    if (!open) {
+      clearSpotlightTimeout();
+      setIsSpotlighting(false);
+      setHighlightedStudentId(null);
+      return;
+    }
+    if (spotlightTrigger > 0 && spotlightTrigger !== lastTriggerRef.current) {
+      lastTriggerRef.current = spotlightTrigger;
+      runProjectedSpotlight();
+    }
+  }, [open, spotlightTrigger, clearSpotlightTimeout, runProjectedSpotlight]);
+
+  useEffect(() => {
+    return () => clearSpotlightTimeout();
+  }, [clearSpotlightTimeout]);
 
   if (!open) return null;
 
@@ -71,6 +202,11 @@ export const ProjectorOverlay: React.FC<ProjectorOverlayProps> = ({
   const mins = Math.floor(secondsRemaining / 60);
   const secs = secondsRemaining % 60;
   const formattedClock = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+
+  const activeHighlightId = isSpotlighting
+    ? highlightedStudentId
+    : spotlightWinner?.studentId || null;
+  const spotlightActive = isSpotlighting || Boolean(spotlightWinner);
 
   const numGroups = groups.length;
   const maxStudents = Math.max(...groups.map((g) => g.studentIds.length), 1);
@@ -174,6 +310,32 @@ export const ProjectorOverlay: React.FC<ProjectorOverlayProps> = ({
     }
   };
 
+  const handleStartPauseTimer = () => {
+    if (timerRunning) {
+      setTimerRunning(false);
+      syncInputsFromSeconds(secondsRemaining);
+    } else {
+      const total = applyTypedTimerValues(minInput, secInput, true);
+      if (total <= 0) return;
+      syncInputsFromSeconds(total);
+      setTimerRunning(true);
+    }
+  };
+
+  const handleTimerKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleStartPauseTimer();
+    }
+  };
+
+  const handleCloseWinner = () => {
+    clearSpotlightTimeout();
+    setIsSpotlighting(false);
+    setHighlightedStudentId(null);
+    onSpotlightWinner(null);
+  };
+
   return (
     <div className="fixed inset-0 z-40 bg-slate-950 text-white flex flex-col p-2.5 sm:p-4 overflow-hidden">
       {/* Projector Header */}
@@ -188,15 +350,65 @@ export const ProjectorOverlay: React.FC<ProjectorOverlayProps> = ({
           </div>
         </div>
 
-        {/* Classroom Timer Widget */}
+        {/* Classroom Timer Widget (Typeable Any Value) */}
         {showTimer && (
-          <div className="flex items-center bg-slate-950 border border-slate-800 rounded-xl px-4 py-1.5 gap-3">
-            <span className="font-black text-2xl text-amber-400 font-mono-tabular tracking-wider">
-              {formattedClock}
-            </span>
+          <div className="flex items-center bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 gap-2.5">
+            {timerRunning ? (
+              <button
+                onClick={() => {
+                  setTimerRunning(false);
+                  syncInputsFromSeconds(secondsRemaining);
+                }}
+                className="font-black text-2xl text-amber-400 font-mono-tabular tracking-wider hover:text-amber-300 cursor-pointer px-1"
+                title="Click to pause and edit time"
+              >
+                {formattedClock}
+              </button>
+            ) : (
+              <div className="flex items-center gap-1" title="Type minutes and seconds">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  aria-label="Timer minutes"
+                  value={minInput}
+                  maxLength={3}
+                  onChange={(e) => {
+                    const cleaned = e.target.value.replace(/\D/g, '').slice(0, 3);
+                    setMinInput(cleaned);
+                    applyTypedTimerValues(cleaned, secInput, true);
+                  }}
+                  onBlur={() => {
+                    const total = applyTypedTimerValues(minInput, secInput, true);
+                    syncInputsFromSeconds(total);
+                  }}
+                  onKeyDown={handleTimerKeyDown}
+                  className="w-12 bg-slate-900 border border-slate-700 focus:border-amber-400 rounded-lg px-1 py-0.5 text-center font-black text-xl text-amber-400 font-mono-tabular focus:outline-none"
+                />
+                <span className="font-black text-xl text-amber-400">:</span>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  aria-label="Timer seconds"
+                  value={secInput}
+                  maxLength={2}
+                  onChange={(e) => {
+                    const cleaned = e.target.value.replace(/\D/g, '').slice(0, 2);
+                    setSecInput(cleaned);
+                    applyTypedTimerValues(minInput, cleaned, true);
+                  }}
+                  onBlur={() => {
+                    const total = applyTypedTimerValues(minInput, secInput, true);
+                    syncInputsFromSeconds(total);
+                  }}
+                  onKeyDown={handleTimerKeyDown}
+                  className="w-11 bg-slate-900 border border-slate-700 focus:border-amber-400 rounded-lg px-1 py-0.5 text-center font-black text-xl text-amber-400 font-mono-tabular focus:outline-none"
+                />
+              </div>
+            )}
+
             <div className="flex items-center gap-1">
               <button
-                onClick={() => setTimerRunning((r) => !r)}
+                onClick={handleStartPauseTimer}
                 className="p-1.5 bg-slate-800 hover:bg-slate-700 text-amber-300 rounded-lg cursor-pointer"
                 title={timerRunning ? 'Pause Timer' : 'Start Timer'}
               >
@@ -205,7 +417,9 @@ export const ProjectorOverlay: React.FC<ProjectorOverlayProps> = ({
               <button
                 onClick={() => {
                   setTimerRunning(false);
-                  setSecondsRemaining(300);
+                  const resetTo = customDurationSeconds > 0 ? customDurationSeconds : 300;
+                  setSecondsRemaining(resetTo);
+                  syncInputsFromSeconds(resetTo);
                 }}
                 className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg cursor-pointer"
                 title="Reset Timer"
@@ -213,13 +427,27 @@ export const ProjectorOverlay: React.FC<ProjectorOverlayProps> = ({
                 <RotateCcw className="w-3.5 h-3.5" />
               </button>
               <button
-                onClick={() => setSecondsRemaining((s) => s + 60)}
+                onClick={() => {
+                  const next = secondsRemaining + 60;
+                  setSecondsRemaining(next);
+                  if (!timerRunning) {
+                    setCustomDurationSeconds(next);
+                    syncInputsFromSeconds(next);
+                  }
+                }}
                 className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-amber-300 rounded-lg text-xs font-bold cursor-pointer"
               >
                 +1m
               </button>
               <button
-                onClick={() => setSecondsRemaining((s) => s + 300)}
+                onClick={() => {
+                  const next = secondsRemaining + 300;
+                  setSecondsRemaining(next);
+                  if (!timerRunning) {
+                    setCustomDurationSeconds(next);
+                    syncInputsFromSeconds(next);
+                  }
+                }}
                 className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-amber-300 rounded-lg text-xs font-bold cursor-pointer"
               >
                 +5m
@@ -249,11 +477,16 @@ export const ProjectorOverlay: React.FC<ProjectorOverlayProps> = ({
             Timer
           </button>
           <button
-            onClick={onOpenSpotlight}
-            className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-amber-300 font-extrabold text-xs sm:text-sm rounded-xl border border-slate-700 flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
+            onClick={runProjectedSpotlight}
+            disabled={isSpotlighting}
+            className={`px-3.5 py-2 font-extrabold text-xs sm:text-sm rounded-xl border flex items-center gap-1.5 whitespace-nowrap cursor-pointer disabled:opacity-60 ${
+              isSpotlighting
+                ? 'bg-amber-400 text-black border-amber-300'
+                : 'bg-slate-800 hover:bg-slate-700 text-amber-300 border-slate-700'
+            }`}
           >
             <Sparkles className="w-4 h-4" />
-            Spotlight
+            {isSpotlighting ? 'Shuffling...' : 'Spotlight'}
           </button>
           <button
             onClick={onReshuffle}
@@ -279,10 +512,29 @@ export const ProjectorOverlay: React.FC<ProjectorOverlayProps> = ({
         </div>
       </div>
 
-      {/* Spotlight Winner Banner */}
-      {spotlightWinner && (
-        <div className="bg-gradient-to-r from-amber-500 via-amber-400 to-yellow-300 text-black font-black text-xl sm:text-2xl py-2 px-4 rounded-xl mb-2 text-center shrink-0">
-          🏆 Spotlight Winner: {spotlightWinner.studentName} ({spotlightWinner.groupName})
+      {/* Live Shuffling Banner */}
+      {isSpotlighting && (
+        <div className="bg-slate-900 border-2 border-amber-400 text-amber-300 font-black text-lg sm:text-xl py-2 px-4 rounded-xl mb-2 text-center shrink-0">
+          🎯 Spotlighting across student groups...
+        </div>
+      )}
+
+      {/* Spotlight Winner Banner with Close Option */}
+      {!isSpotlighting && spotlightWinner && (
+        <div className="bg-gradient-to-r from-amber-500 via-amber-400 to-yellow-300 text-black font-black text-lg sm:text-2xl py-2 px-4 rounded-xl mb-2 flex items-center justify-between gap-3 shrink-0 shadow-lg">
+          <span className="w-8 shrink-0" aria-hidden="true" />
+          <span className="text-center truncate">
+            🏆 Spotlight Winner: {spotlightWinner.studentName} ({spotlightWinner.groupName})
+          </span>
+          <button
+            onClick={handleCloseWinner}
+            className="px-2.5 py-1 bg-black/15 hover:bg-black/25 text-black rounded-lg text-xs font-black flex items-center gap-1 shrink-0 cursor-pointer"
+            title="Close Spotlight Winner"
+            aria-label="Close Spotlight Winner"
+          >
+            <X className="w-4 h-4" />
+            Close
+          </button>
         </div>
       )}
 
@@ -330,26 +582,49 @@ export const ProjectorOverlay: React.FC<ProjectorOverlayProps> = ({
                       <span className="text-xs font-bold text-slate-600">Empty Station</span>
                     </div>
                   ) : (
-                    memberStudents.map((st) => (
-                      <div
-                        key={st.id}
-                        draggable
-                        onDragStart={(e) => handleDragStart(e, st.id, grp.id)}
-                        className={`bg-slate-950 border border-slate-800 rounded-xl ${itemPadding} flex items-center justify-between cursor-grab active:cursor-grabbing min-h-0 overflow-hidden`}
-                      >
-                        <span className={`${fontClass} text-white leading-tight break-words whitespace-normal tracking-tight min-w-0`}>
-                          {st.name}
-                        </span>
-                        <button
-                          onClick={() => onOpenQuickMove(st.id, grp.id)}
-                          className="ml-1.5 text-slate-500 hover:text-amber-300 shrink-0 cursor-pointer"
-                          title="Move Group"
-                          aria-label={`Move ${st.name}`}
+                    memberStudents.map((st) => {
+                      const isHighlighted = activeHighlightId === st.id;
+                      const isDimmed = spotlightActive && !isHighlighted;
+                      return (
+                        <div
+                          key={st.id}
+                          draggable
+                          onDragStart={(e) => handleDragStart(e, st.id, grp.id)}
+                          className={`rounded-xl ${itemPadding} flex items-center justify-between cursor-grab active:cursor-grabbing min-h-0 overflow-hidden transition-all duration-100 ${
+                            isHighlighted
+                              ? 'bg-amber-400 text-black border-2 border-yellow-100 ring-4 ring-amber-400/60 scale-[1.02] shadow-xl z-10'
+                              : isDimmed
+                              ? 'bg-slate-950/60 border border-slate-800/60 opacity-40'
+                              : 'bg-slate-950 border border-slate-800'
+                          }`}
                         >
-                          <ArrowLeftRight className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    ))
+                          <span
+                            className={`${fontClass} leading-tight break-words whitespace-normal tracking-tight min-w-0 flex items-center gap-1.5 ${
+                              isHighlighted ? 'text-black' : 'text-white'
+                            }`}
+                          >
+                            {isHighlighted && (
+                              <span className="shrink-0">
+                                {isSpotlighting ? '🎯' : '🏆'}
+                              </span>
+                            )}
+                            <span>{st.name}</span>
+                          </span>
+                          <button
+                            onClick={() => onOpenQuickMove(st.id, grp.id)}
+                            className={`ml-1.5 shrink-0 cursor-pointer ${
+                              isHighlighted
+                                ? 'text-black/70 hover:text-black'
+                                : 'text-slate-500 hover:text-amber-300'
+                            }`}
+                            title="Move Group"
+                            aria-label={`Move ${st.name}`}
+                          >
+                            <ArrowLeftRight className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      );
+                    })
                   )}
                 </div>
               </div>

@@ -28,19 +28,96 @@ const WORKSPACE_PATH = `workspaces/${WORKSPACE_ID}`;
 const SECTIONS_PATH = `workspaces/${WORKSPACE_ID}/sections`;
 const PASS_LOGS_PATH = `workspaces/${WORKSPACE_ID}/passLogs`;
 
-const DEFAULT_SAMPLE_ROSTER = [
-  { id: 'st_1', name: 'Alexander Davis', present: true, passesUsed: 0, outTimestamp: 0 },
-  { id: 'st_2', name: 'Jordan Carter', present: true, passesUsed: 1, outTimestamp: 0 },
-  { id: 'st_3', name: 'Taylor Smith', present: true, passesUsed: 0, outTimestamp: 0 },
-  { id: 'st_4', name: 'Morgan Vance', present: true, passesUsed: 2, outTimestamp: 0 },
-  { id: 'st_5', name: 'Riley Johnson', present: true, passesUsed: 0, outTimestamp: 0 },
-  { id: 'st_6', name: 'Casey Williams', present: true, passesUsed: 0, outTimestamp: 0 },
-  { id: 'st_7', name: 'Avery Brown', present: true, passesUsed: 4, outTimestamp: 0 },
-  { id: 'st_8', name: 'Dakota Jones', present: true, passesUsed: 0, outTimestamp: 0 },
-  { id: 'st_9', name: 'Cameron Miller', present: true, passesUsed: 0, outTimestamp: 0 },
-  { id: 'st_10', name: 'Skyler Wilson', present: true, passesUsed: 1, outTimestamp: 0 },
-  { id: 'st_11', name: 'Reese Moore', present: true, passesUsed: 0, outTimestamp: 0 },
-  { id: 'st_12', name: 'Quinn Taylor', present: true, passesUsed: 0, outTimestamp: 0 },
+const LEGACY_SAMPLE_SECTION_ID = 'sec_1';
+const LEGACY_SAMPLE_SECTION_NAME = 'Period 1 - Heights Tigers';
+
+interface PresetClassSeed {
+  id: string;
+  name: string;
+  studentPrefix: string;
+  skipKey: string;
+  roster: string[];
+}
+
+const PRESET_CLASSES: PresetClassSeed[] = [
+  {
+    id: 'sec_alg1_p2',
+    name: 'Algebra 1 - Period 2',
+    studentPrefix: 'st_alg1_p2',
+    skipKey: 'tiger_skip_seed_sec_alg1_p2',
+    roster: [
+      "A'Lontae Austin",
+      'Todd Averytt',
+      'Walid Baker',
+      'Keiston Casson',
+      'Jakieh Edwards',
+      'Emanuel Galdamez',
+      'Jailynn Gates',
+      'Honestie Grady',
+      'Nehemiah Green',
+      'Breeya Horne',
+      'Dezmond Jamerson',
+      'Brooklynn Jones',
+      'Jada Jones',
+      'Thea Lees',
+      'Niko Miller',
+      'Daniyah Moon',
+      'Amiia Reid',
+      'Ameirah Robinson',
+      'Chaz Sturdivant',
+      'Payge Wright',
+      'Emani Dillon',
+      "Ky'lah Finley",
+      'Gabriel Mixson',
+      'Aliyah Reaves',
+      'Robert Woodson',
+    ],
+  },
+  {
+    id: 'sec_alg1_p4',
+    name: 'Algebra 1 - Period 4',
+    studentPrefix: 'st_alg1_p4',
+    skipKey: 'tiger_skip_seed_sec_alg1_p4',
+    roster: [
+      "Wanh'ca Belt",
+      'Derrick Black',
+      'King Fletcher',
+      'Nyomi Johnson',
+      'Londyn Jolly',
+      'Kaiden Jones',
+      'Ryian McMillon',
+      "Sy'Eria Melton",
+      'Phillip Moreland',
+      'Ajanae Pearsall',
+    ],
+  },
+  {
+    id: 'sec_alg1_p8',
+    name: 'Algebra 1 - Period 8',
+    studentPrefix: 'st_alg1_p8',
+    skipKey: 'tiger_skip_seed_sec_alg1_p8',
+    roster: [
+      'Imogen Butler',
+      'Aliyanna Claybrooks',
+      'Gissel Dominguez Freire',
+      'Dorian Edwards',
+      'Pierre Green',
+      'Stephen Hunter',
+      'Kalaijah King',
+      'London Minor',
+      'Justin Roberts',
+      'Israel Yeboah',
+      'Asher Benedict',
+      'Ciara Cantie',
+      'Ramone Hayes',
+      'Leah Holliday',
+      'Angel McLendon',
+      'Allen Miller',
+      'Wyatt Money',
+      'Ayden Scroggins',
+      'Blessed Williams',
+    ],
+  },
 ];
 
 function sanitizeId(raw: string, fallbackPrefix: string): string {
@@ -75,62 +152,200 @@ function sanitizeGroups(groups: GroupEntry[]): GroupEntry[] {
   }));
 }
 
+function sanitizePassQueue(queue: string[]): string[] {
+  const seen = new Set<string>();
+  const clean: string[] = [];
+  for (const rawId of queue) {
+    const id = sanitizeId(rawId, 'st');
+    if (!seen.has(id)) {
+      seen.add(id);
+      clean.push(id);
+    }
+    if (clean.length >= LIMITS.MAX_GROUP_STUDENTS) break;
+  }
+  return clean;
+}
+
+function isPresetSkipped(preset: PresetClassSeed): boolean {
+  return (
+    typeof window !== 'undefined' &&
+    window.localStorage.getItem(preset.skipKey) === '1'
+  );
+}
+
 export async function ensureWorkspaceAndSeed(teacherEmail: string): Promise<void> {
   const email = teacherEmail.trim().toLowerCase().slice(0, LIMITS.EMAIL_MAX);
   const workspaceRef = doc(db, 'workspaces', WORKSPACE_ID);
 
   try {
     const snap = await getDoc(workspaceRef);
-    if (snap.exists()) {
-      return;
-    }
 
-    const batch = writeBatch(db);
-    const defaultSectionId = 'sec_1';
-    const sectionRef = doc(db, SECTIONS_PATH, defaultSectionId);
+    if (!snap.exists()) {
+      const batch = writeBatch(db);
+      const activePresets = PRESET_CLASSES.filter((p) => !isPresetSkipped(p));
+      const presetsToSeed = activePresets.length > 0 ? activePresets : [PRESET_CLASSES[0]];
+      const initialActiveId = presetsToSeed[0].id;
 
-    batch.set(workspaceRef, {
-      id: WORKSPACE_ID,
-      activeSectionId: defaultSectionId,
-      createdBy: email,
-      updatedBy: email,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    });
-
-    batch.set(sectionRef, {
-      id: defaultSectionId,
-      workspaceId: WORKSPACE_ID,
-      name: 'Period 1 - Heights Tigers',
-      order: 0,
-      quickSize: 4,
-      quickCount: 0,
-      forceExactCount: false,
-      groups: [],
-      createdBy: email,
-      updatedBy: email,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    });
-
-    for (const student of DEFAULT_SAMPLE_ROSTER) {
-      const studentRef = doc(db, `${SECTIONS_PATH}/${defaultSectionId}/students`, student.id);
-      batch.set(studentRef, {
-        id: student.id,
-        workspaceId: WORKSPACE_ID,
-        sectionId: defaultSectionId,
-        name: student.name,
-        present: student.present,
-        passesUsed: student.passesUsed,
-        outTimestamp: student.outTimestamp,
+      batch.set(workspaceRef, {
+        id: WORKSPACE_ID,
+        activeSectionId: initialActiveId,
         createdBy: email,
         updatedBy: email,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
+
+      presetsToSeed.forEach((preset, presetIdx) => {
+        batch.set(doc(db, SECTIONS_PATH, preset.id), {
+          id: preset.id,
+          workspaceId: WORKSPACE_ID,
+          name: preset.name,
+          order: presetIdx,
+          quickSize: 4,
+          quickCount: 0,
+          forceExactCount: false,
+          groups: [],
+          createdBy: email,
+          updatedBy: email,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+
+        preset.roster.forEach((studentName, idx) => {
+          const studentId = `${preset.studentPrefix}_${idx + 1}`;
+          batch.set(doc(db, `${SECTIONS_PATH}/${preset.id}/students`, studentId), {
+            id: studentId,
+            workspaceId: WORKSPACE_ID,
+            sectionId: preset.id,
+            name: studentName,
+            present: true,
+            passesUsed: 0,
+            outTimestamp: 0,
+            createdBy: email,
+            updatedBy: email,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          });
+        });
+      });
+
+      await batch.commit();
+      return;
     }
 
-    await batch.commit();
+    const candidates = PRESET_CLASSES.filter((p) => !isPresetSkipped(p));
+    const existingSectionsSnap = await getDocs(
+      query(collection(db, SECTIONS_PATH), where('workspaceId', '==', WORKSPACE_ID))
+    );
+    const existingSections = existingSectionsSnap.docs
+      .map((d) => d.data() as ClassSectionDoc)
+      .sort((a, b) => a.order - b.order);
+
+    const missingPresets = candidates.filter(
+      (preset) =>
+        !existingSections.some(
+          (s) =>
+            s.id === preset.id ||
+            s.name.trim().toLowerCase() === preset.name.toLowerCase()
+        )
+    );
+
+    let currentActiveId = (snap.data() as WorkspaceDoc).activeSectionId;
+
+    if (missingPresets.length > 0) {
+      let nextOrder = Math.max(
+        0,
+        Math.min(
+          10000,
+          existingSections.reduce((max, s) => Math.max(max, Number(s.order) || 0), -1) + 1
+        )
+      );
+
+      const batch = writeBatch(db);
+      let lastSeededId = '';
+
+      for (const preset of missingPresets) {
+        batch.set(doc(db, SECTIONS_PATH, preset.id), {
+          id: preset.id,
+          workspaceId: WORKSPACE_ID,
+          name: preset.name,
+          order: Math.min(10000, nextOrder),
+          quickSize: 4,
+          quickCount: 0,
+          forceExactCount: false,
+          groups: [],
+          createdBy: email,
+          updatedBy: email,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+        nextOrder += 1;
+        lastSeededId = preset.id;
+
+        preset.roster.forEach((studentName, idx) => {
+          const studentId = `${preset.studentPrefix}_${idx + 1}`;
+          batch.set(doc(db, `${SECTIONS_PATH}/${preset.id}/students`, studentId), {
+            id: studentId,
+            workspaceId: WORKSPACE_ID,
+            sectionId: preset.id,
+            name: studentName,
+            present: true,
+            passesUsed: 0,
+            outTimestamp: 0,
+            createdBy: email,
+            updatedBy: email,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          });
+        });
+      }
+
+      if (lastSeededId) {
+        currentActiveId = lastSeededId;
+        batch.update(workspaceRef, {
+          activeSectionId: lastSeededId,
+          updatedBy: email,
+          updatedAt: serverTimestamp(),
+        });
+      }
+
+      await batch.commit();
+    }
+
+    // Remove the legacy default "Period 1 - Heights Tigers" sample section if present
+    const legacySection = existingSections.find(
+      (s) =>
+        s.id === LEGACY_SAMPLE_SECTION_ID ||
+        s.name.trim().toLowerCase() === LEGACY_SAMPLE_SECTION_NAME.toLowerCase()
+    );
+    if (legacySection) {
+      const remainingIds = [
+        ...existingSections.filter((s) => s.id !== legacySection.id).map((s) => s.id),
+        ...missingPresets.map((p) => p.id),
+      ];
+      if (remainingIds.length > 0) {
+        const legacyStudentsPath = `${SECTIONS_PATH}/${legacySection.id}/students`;
+        const legacyStudentsSnap = await getDocs(
+          query(
+            collection(db, legacyStudentsPath),
+            where('sectionId', '==', legacySection.id)
+          )
+        );
+        const delBatch = writeBatch(db);
+        legacyStudentsSnap.docs.forEach((sDoc) => {
+          delBatch.delete(sDoc.ref);
+        });
+        delBatch.delete(doc(db, SECTIONS_PATH, legacySection.id));
+        if (currentActiveId === legacySection.id) {
+          delBatch.update(workspaceRef, {
+            activeSectionId: remainingIds[0],
+            updatedBy: email,
+            updatedAt: serverTimestamp(),
+          });
+        }
+        await delBatch.commit();
+      }
+    }
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, WORKSPACE_PATH);
   }
@@ -341,6 +556,10 @@ export async function deleteSection(
       updatedAt: serverTimestamp(),
     });
     await batch.commit();
+    const deletedPreset = PRESET_CLASSES.find((p) => p.id === sectionId);
+    if (deletedPreset && typeof window !== 'undefined') {
+      window.localStorage.setItem(deletedPreset.skipKey, '1');
+    }
   } catch (error) {
     handleFirestoreError(error, OperationType.DELETE, `${SECTIONS_PATH}/${sectionId}`);
   }
@@ -376,6 +595,24 @@ export async function updateSectionGroups(
   try {
     await updateDoc(doc(db, SECTIONS_PATH, sectionId), {
       groups: sanitizeGroups(groups),
+      updatedBy: email,
+      updatedAt: serverTimestamp(),
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
+  }
+}
+
+export async function updateSectionPassQueue(
+  sectionId: string,
+  passQueue: string[],
+  teacherEmail: string
+): Promise<void> {
+  const email = teacherEmail.trim().toLowerCase().slice(0, LIMITS.EMAIL_MAX);
+  const path = `${SECTIONS_PATH}/${sectionId}`;
+  try {
+    await updateDoc(doc(db, SECTIONS_PATH, sectionId), {
+      passQueue: sanitizePassQueue(passQueue),
       updatedBy: email,
       updatedAt: serverTimestamp(),
     });
@@ -508,7 +745,8 @@ export async function deleteStudent(
   sectionId: string,
   studentId: string,
   currentGroups: GroupEntry[],
-  teacherEmail: string
+  teacherEmail: string,
+  currentPassQueue: string[] = []
 ): Promise<void> {
   const email = teacherEmail.trim().toLowerCase().slice(0, LIMITS.EMAIL_MAX);
   const path = `${SECTIONS_PATH}/${sectionId}/students/${studentId}`;
@@ -516,16 +754,26 @@ export async function deleteStudent(
     const batch = writeBatch(db);
     batch.delete(doc(db, `${SECTIONS_PATH}/${sectionId}/students`, studentId));
     const hasStudentInGroups = currentGroups.some((g) => g.studentIds.includes(studentId));
-    if (hasStudentInGroups) {
-      const updatedGroups = currentGroups.map((g) => ({
-        ...g,
-        studentIds: g.studentIds.filter((id) => id !== studentId),
-      }));
-      batch.update(doc(db, SECTIONS_PATH, sectionId), {
-        groups: sanitizeGroups(updatedGroups),
+    const hasStudentInQueue = currentPassQueue.includes(studentId);
+    if (hasStudentInGroups || hasStudentInQueue) {
+      const sectionPatch: Record<string, unknown> = {
         updatedBy: email,
         updatedAt: serverTimestamp(),
-      });
+      };
+      if (hasStudentInGroups) {
+        sectionPatch.groups = sanitizeGroups(
+          currentGroups.map((g) => ({
+            ...g,
+            studentIds: g.studentIds.filter((id) => id !== studentId),
+          }))
+        );
+      }
+      if (hasStudentInQueue) {
+        sectionPatch.passQueue = sanitizePassQueue(
+          currentPassQueue.filter((id) => id !== studentId)
+        );
+      }
+      batch.update(doc(db, SECTIONS_PATH, sectionId), sectionPatch);
     }
     await batch.commit();
   } catch (error) {
@@ -575,7 +823,8 @@ export async function issueStudentPass(
   sectionId: string,
   sectionName: string,
   student: StudentDoc,
-  teacherEmail: string
+  teacherEmail: string,
+  currentPassQueue: string[] = []
 ): Promise<void> {
   if (student.passesUsed >= LIMITS.MAX_PASSES) return;
   const email = teacherEmail.trim().toLowerCase().slice(0, LIMITS.EMAIL_MAX);
@@ -592,6 +841,13 @@ export async function issueStudentPass(
       updatedBy: email,
       updatedAt: serverTimestamp(),
     });
+    if (currentPassQueue.includes(student.id)) {
+      batch.update(doc(db, SECTIONS_PATH, sectionId), {
+        passQueue: sanitizePassQueue(currentPassQueue.filter((id) => id !== student.id)),
+        updatedBy: email,
+        updatedAt: serverTimestamp(),
+      });
+    }
     batch.set(
       doc(db, PASS_LOGS_PATH, logId),
       buildPassLogPayload({

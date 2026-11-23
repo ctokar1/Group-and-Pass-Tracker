@@ -1,14 +1,18 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
+  ArrowUp,
   Ban,
   CheckCircle2,
   Clock,
   History,
+  ListOrdered,
   Minus,
+  PictureInPicture2,
   Plus,
   RotateCcw,
   Search,
   Ticket,
+  Trash2,
 } from 'lucide-react';
 import {
   LIMITS,
@@ -27,6 +31,11 @@ interface HallPassesTabProps {
   onIssuePass: (student: StudentDoc) => Promise<void>;
   onReturnStudent: (student: StudentDoc) => Promise<void>;
   onAdjustPassCount: (student: StudentDoc, delta: number) => Promise<void>;
+  onAddToQueue: (studentId: string) => Promise<void>;
+  onRemoveFromQueue: (studentId: string) => Promise<void>;
+  onMoveQueueUp: (studentId: string) => Promise<void>;
+  onClearQueue: () => Promise<void>;
+  onOpenPassPopout: () => void;
   onOpenResetModal: () => void;
   onViewFullHistory: () => void;
   onOpenStudentHistory: (student: StudentDoc) => void;
@@ -57,6 +66,11 @@ export const HallPassesTab: React.FC<HallPassesTabProps> = ({
   onIssuePass,
   onReturnStudent,
   onAdjustPassCount,
+  onAddToQueue,
+  onRemoveFromQueue,
+  onMoveQueueUp,
+  onClearQueue,
+  onOpenPassPopout,
   onOpenResetModal,
   onViewFullHistory,
   onOpenStudentHistory,
@@ -64,6 +78,7 @@ export const HallPassesTab: React.FC<HallPassesTabProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [showAllLogs, setShowAllLogs] = useState(false);
+  const [queuePickerId, setQueuePickerId] = useState('');
 
   // Live ticker every 1 second for accurate time-out counters
   useEffect(() => {
@@ -72,11 +87,52 @@ export const HallPassesTab: React.FC<HallPassesTabProps> = ({
   }, []);
 
   const queryText = searchQuery.trim().toLowerCase();
-  const sortedRoster = [...students].sort((a, b) => a.name.localeCompare(b.name));
+  const sortedRoster = useMemo(
+    () => [...students].sort((a, b) => a.name.localeCompare(b.name)),
+    [students]
+  );
+  const studentMap = useMemo(
+    () => new Map(students.map((s) => [s.id, s])),
+    [students]
+  );
   const filteredRoster = sortedRoster.filter((st) =>
     st.name.toLowerCase().includes(queryText)
   );
   const currentlyOut = sortedRoster.filter((st) => st.outTimestamp > 0);
+  const someoneOut = currentlyOut.length > 0;
+
+  const queuedStudents = useMemo(
+    () =>
+      (section?.passQueue || [])
+        .map((id) => studentMap.get(id))
+        .filter((st): st is StudentDoc => Boolean(st && st.outTimestamp <= 0)),
+    [section?.passQueue, studentMap]
+  );
+  const queuedIndexMap = useMemo(() => {
+    const map = new Map<string, number>();
+    queuedStudents.forEach((st, idx) => map.set(st.id, idx));
+    return map;
+  }, [queuedStudents]);
+
+  const eligibleToQueue = useMemo(
+    () =>
+      sortedRoster.filter(
+        (st) =>
+          st.outTimestamp <= 0 &&
+          !queuedIndexMap.has(st.id) &&
+          st.passesUsed < LIMITS.MAX_PASSES
+      ),
+    [sortedRoster, queuedIndexMap]
+  );
+
+  useEffect(() => {
+    if (
+      queuePickerId &&
+      !eligibleToQueue.some((st) => st.id === queuePickerId)
+    ) {
+      setQueuePickerId('');
+    }
+  }, [eligibleToQueue, queuePickerId]);
 
   const visibleLogs = showAllLogs
     ? passLogs
@@ -91,11 +147,11 @@ export const HallPassesTab: React.FC<HallPassesTabProps> = ({
             <span>🚽</span> Quarter Bathroom Pass Tracker
           </h2>
           <p className="text-xs text-slate-400 mt-0.5">
-            Students are allowed {MAX_QUARTER_PASSES} passes per quarter. Tiles lock automatically at {MAX_QUARTER_PASSES}/{MAX_QUARTER_PASSES}.
+            Only <strong className="text-amber-300">1 student</strong> allowed out at a time · Students receive {MAX_QUARTER_PASSES} passes per quarter.
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2.5">
           <div className="relative">
             <Search className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
@@ -103,9 +159,17 @@ export const HallPassesTab: React.FC<HallPassesTabProps> = ({
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search student name..."
-              className="bg-slate-950 border border-slate-800 rounded-xl pl-8 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-400 w-52"
+              className="bg-slate-950 border border-slate-800 rounded-xl pl-8 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-400 w-48"
             />
           </div>
+          <button
+            onClick={onOpenPassPopout}
+            className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-emerald-300 border border-slate-700 font-extrabold text-xs rounded-xl flex items-center gap-1.5 transition-all whitespace-nowrap cursor-pointer"
+            title="Open pop-out Restroom Status & Line window to drag onto another monitor"
+          >
+            <PictureInPicture2 className="w-3.5 h-3.5" />
+            Pop Out Restroom Window
+          </button>
           <button
             onClick={onOpenResetModal}
             className="px-3.5 py-2 bg-rose-950/60 hover:bg-rose-900 text-rose-300 border border-rose-800/60 font-extrabold text-xs rounded-xl flex items-center gap-1.5 transition-all whitespace-nowrap cursor-pointer"
@@ -126,7 +190,7 @@ export const HallPassesTab: React.FC<HallPassesTabProps> = ({
                 <span className="relative inline-flex rounded-full h-3 w-3 bg-amber-500" />
               </span>
               <h3 className="font-black text-sm text-amber-300 tracking-wide">
-                Students Currently Out of Room
+                Student Currently Out of Room (1 Out Limit Active)
               </h3>
             </div>
             <span className="px-2.5 py-0.5 bg-amber-400 text-black font-black text-xs rounded-lg font-mono-tabular">
@@ -180,6 +244,117 @@ export const HallPassesTab: React.FC<HallPassesTabProps> = ({
         </div>
       )}
 
+      {/* Who's Next Restroom Queue Bar */}
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <ListOrdered className="w-4 h-4 text-amber-400" />
+            <h3 className="font-extrabold text-sm text-white">
+              Restroom Line — Who&apos;s Next ({queuedStudents.length})
+            </h3>
+            {!someoneOut && queuedStudents[0] && (
+              <span className="text-xs font-bold text-emerald-400">
+                · Ready for {queuedStudents[0].name}
+              </span>
+            )}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              value={queuePickerId || (eligibleToQueue[0]?.id ?? '')}
+              onChange={(e) => setQueuePickerId(e.target.value)}
+              disabled={eligibleToQueue.length === 0}
+              aria-label="Select student to add to restroom line"
+              className="bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-1.5 text-xs font-semibold text-white focus:outline-none focus:ring-2 focus:ring-amber-400 disabled:opacity-40"
+            >
+              {eligibleToQueue.length === 0 ? (
+                <option value="">No eligible students left</option>
+              ) : (
+                eligibleToQueue.map((st) => (
+                  <option key={st.id} value={st.id}>
+                    {st.name} ({st.passesUsed}/{MAX_QUARTER_PASSES})
+                  </option>
+                ))
+              )}
+            </select>
+            <button
+              onClick={() => {
+                const targetId = queuePickerId || eligibleToQueue[0]?.id;
+                if (targetId) {
+                  void onAddToQueue(targetId);
+                  setQueuePickerId('');
+                }
+              }}
+              disabled={eligibleToQueue.length === 0}
+              className="px-3 py-1.5 bg-amber-400 hover:bg-amber-300 disabled:opacity-40 text-black font-black text-xs rounded-xl flex items-center gap-1 cursor-pointer"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              Add to Line
+            </button>
+            {queuedStudents.length > 0 && (
+              <button
+                onClick={() => void onClearQueue()}
+                className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-rose-300 text-xs font-bold rounded-xl border border-slate-700 cursor-pointer"
+              >
+                Clear Line
+              </button>
+            )}
+          </div>
+        </div>
+
+        {queuedStudents.length > 0 && (
+          <div className="flex flex-wrap gap-2 pt-1">
+            {queuedStudents.map((st, idx) => (
+              <div
+                key={st.id}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs ${
+                  idx === 0
+                    ? 'bg-amber-950/35 border-amber-400/70'
+                    : 'bg-slate-950 border-slate-800'
+                }`}
+              >
+                <span
+                  className={`px-1.5 py-0.5 rounded font-black text-[11px] font-mono-tabular ${
+                    idx === 0
+                      ? 'bg-amber-400 text-black'
+                      : 'bg-slate-800 text-slate-300'
+                  }`}
+                >
+                  #{idx + 1}
+                </span>
+                <span className="font-bold text-white">{st.name}</span>
+                {!someoneOut && idx === 0 && st.passesUsed < LIMITS.MAX_PASSES && (
+                  <button
+                    onClick={() => void onIssuePass(st)}
+                    className="px-2 py-0.5 bg-emerald-500 hover:bg-emerald-400 text-black font-black text-[11px] rounded-md cursor-pointer"
+                  >
+                    Send Next
+                  </button>
+                )}
+                {idx > 0 && (
+                  <button
+                    onClick={() => void onMoveQueueUp(st.id)}
+                    className="text-slate-400 hover:text-amber-300 cursor-pointer"
+                    title={`Move ${st.name} up`}
+                    aria-label={`Move ${st.name} up`}
+                  >
+                    <ArrowUp className="w-3.5 h-3.5" />
+                  </button>
+                )}
+                <button
+                  onClick={() => void onRemoveFromQueue(st.id)}
+                  className="text-slate-500 hover:text-rose-400 cursor-pointer"
+                  title={`Remove ${st.name} from line`}
+                  aria-label={`Remove ${st.name} from line`}
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       {/* Alphabetical Pass Grid */}
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
         {filteredRoster.length === 0 ? (
@@ -191,6 +366,8 @@ export const HallPassesTab: React.FC<HallPassesTabProps> = ({
             const isMax = st.passesUsed >= LIMITS.MAX_PASSES;
             const isOut = st.outTimestamp > 0;
             const elapsedSeconds = isOut ? Math.max(0, Math.floor((nowMs - st.outTimestamp) / 1000)) : 0;
+            const queueIndex = queuedIndexMap.get(st.id);
+            const isInLine = typeof queueIndex === 'number';
 
             return (
               <div
@@ -200,6 +377,8 @@ export const HallPassesTab: React.FC<HallPassesTabProps> = ({
                     ? 'border-amber-400 bg-amber-950/20'
                     : isMax
                     ? 'border-rose-500/60 bg-rose-950/20'
+                    : isInLine
+                    ? 'border-sky-500/60 bg-sky-950/15'
                     : 'border-slate-800 hover:border-slate-700'
                 }`}
               >
@@ -273,13 +452,35 @@ export const HallPassesTab: React.FC<HallPassesTabProps> = ({
                       <Ban className="w-3 h-3 shrink-0" />
                       <span className="truncate">Limit Reached</span>
                     </button>
+                  ) : someoneOut ? (
+                    isInLine ? (
+                      <button
+                        onClick={() => void onRemoveFromQueue(st.id)}
+                        className="flex-1 py-1.5 bg-sky-950/70 hover:bg-rose-950/60 text-sky-300 hover:text-rose-300 border border-sky-500/50 font-extrabold text-[11px] rounded-lg flex items-center justify-center gap-1 transition-colors cursor-pointer min-w-0"
+                        title="Click to remove from restroom line"
+                      >
+                        <ListOrdered className="w-3.5 h-3.5 shrink-0" />
+                        <span className="truncate">In Line (#{queueIndex! + 1})</span>
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => void onAddToQueue(st.id)}
+                        className="flex-1 py-1.5 bg-slate-800 hover:bg-amber-400 hover:text-black text-amber-300 font-extrabold text-[11px] rounded-lg border border-amber-500/30 flex items-center justify-center gap-1 transition-colors cursor-pointer min-w-0"
+                        title="Only 1 student out at a time — add to restroom line"
+                      >
+                        <ListOrdered className="w-3.5 h-3.5 shrink-0" />
+                        <span className="truncate">Add to Line</span>
+                      </button>
+                    )
                   ) : (
                     <button
                       onClick={() => onIssuePass(st)}
                       className="flex-1 py-1.5 bg-slate-800 hover:bg-amber-400 hover:text-black text-amber-300 font-extrabold text-[11px] rounded-lg border border-amber-500/30 flex items-center justify-center gap-1 transition-colors cursor-pointer min-w-0"
                     >
                       <Ticket className="w-3.5 h-3.5 shrink-0" />
-                      <span className="truncate">Issue Pass</span>
+                      <span className="truncate">
+                        {isInLine ? `Go (#${queueIndex! + 1})` : 'Issue Pass'}
+                      </span>
                     </button>
                   )}
                   <button

@@ -69,6 +69,7 @@ export interface ClassSectionDoc {
   quickCount: number;
   forceExactCount: boolean;
   groups: GroupEntry[];
+  passQueue?: string[];
   createdBy: string;
   updatedBy: string;
   createdAt?: unknown;

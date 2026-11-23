@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { onAuthStateChanged, type User } from 'firebase/auth';
 import { collection, getDocs, query, where } from 'firebase/firestore';
 import {
@@ -28,6 +29,7 @@ import {
   subscribeWorkspace,
   toggleStudentAttendance,
   updateSectionGroups,
+  updateSectionPassQueue,
   updateSectionSettings,
   type LegacyOrCloudBackupSection,
 } from './lib/classroomService';
@@ -50,18 +52,26 @@ import { ClassRosterTab } from './components/ClassRosterTab';
 import { GroupRulesTab } from './components/GroupRulesTab';
 import { HallPassesTab } from './components/HallPassesTab';
 import { PassHistoryTab } from './components/PassHistoryTab';
-import { ProjectorOverlay } from './components/ProjectorOverlay';
+import { PassMonitorBoard } from './components/PassMonitorBoard';
+import {
+  ProjectorOverlay,
+  type SpotlightWinnerInfo,
+} from './components/ProjectorOverlay';
 import {
   AddSectionModal,
   ProjectorRulesModal,
   QuickMoveModal,
   ResetPassesModal,
-  SpotlightModal,
 } from './components/Modals';
 import {
   StudentHistoryModal,
   type StudentHistoryTarget,
 } from './components/StudentHistoryModal';
+
+interface DocumentPictureInPictureApi {
+  window: Window | null;
+  requestWindow: (options?: { width?: number; height?: number }) => Promise<Window>;
+}
 
 export default function App() {
   const [authReady, setAuthReady] = useState(false);
@@ -90,21 +100,33 @@ export default function App() {
   });
 
   const [projectorOpen, setProjectorOpen] = useState(false);
-  const [spotlightOpen, setSpotlightOpen] = useState(false);
+  const [spotlightTrigger, setSpotlightTrigger] = useState(0);
   const [projectorRulesOpen, setProjectorRulesOpen] = useState(false);
   const [addSectionOpen, setAddSectionOpen] = useState(false);
   const [resetModalOpen, setResetModalOpen] = useState(false);
+  const [passBoardModalOpen, setPassBoardModalOpen] = useState(false);
+  const [pipContainer, setPipContainer] = useState<HTMLElement | null>(null);
+  const pipWindowRef = useRef<Window | null>(null);
   const [quickMoveTarget, setQuickMoveTarget] = useState<{
     studentId: string;
     currentGroupId: string;
   } | null>(null);
-  const [spotlightWinner, setSpotlightWinner] = useState<{
-    studentName: string;
-    groupName: string;
-  } | null>(null);
+  const [spotlightWinner, setSpotlightWinner] = useState<SpotlightWinnerInfo | null>(null);
   const [historyTarget, setHistoryTarget] = useState<StudentHistoryTarget | null>(null);
 
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
+
+  const isPassBoardMode = useMemo(() => {
+    if (typeof window === 'undefined') return false;
+    return new URLSearchParams(window.location.search).get('view') === 'passboard';
+  }, []);
+
+  const standaloneBoardUrl = useMemo(() => {
+    if (typeof window === 'undefined') return '?view=passboard';
+    const url = new URL(window.location.href);
+    url.searchParams.set('view', 'passboard');
+    return url.toString();
+  }, []);
 
   if (fatalError) {
     throw fatalError;
@@ -423,13 +445,27 @@ export default function App() {
     if (!activeSection) return;
     const target = students.find((s) => s.id === studentId);
     await withSync(async () => {
-      await deleteStudent(activeSection.id, studentId, activeSection.groups, teacherEmail);
+      await deleteStudent(
+        activeSection.id,
+        studentId,
+        activeSection.groups,
+        teacherEmail,
+        activeSection.passQueue || []
+      );
       showToast(`Removed ${target?.name || 'Student'}`);
     });
   };
 
   const handleIssuePass = async (student: StudentDoc) => {
     if (!activeSection) return;
+    const activeOut = students.find((s) => s.outTimestamp > 0);
+    if (activeOut) {
+      showToast(
+        `Only 1 student out at a time! ${activeOut.name} is currently out — add ${student.name} to the line instead.`,
+        'error'
+      );
+      return;
+    }
     if (student.passesUsed >= LIMITS.MAX_PASSES) {
       showToast(
         `${student.name} has reached the pass limit (${MAX_QUARTER_PASSES}/${MAX_QUARTER_PASSES})!`,
@@ -438,7 +474,13 @@ export default function App() {
       return;
     }
     await withSync(async () => {
-      await issueStudentPass(activeSection.id, activeSection.name, student, teacherEmail);
+      await issueStudentPass(
+        activeSection.id,
+        activeSection.name,
+        student,
+        teacherEmail,
+        activeSection.passQueue || []
+      );
       showToast(
         `Issued pass to ${student.name} (${student.passesUsed + 1}/${MAX_QUARTER_PASSES})`
       );
@@ -451,6 +493,113 @@ export default function App() {
       await returnStudentPass(activeSection.id, activeSection.name, student, teacherEmail);
       showToast(`${student.name} returned to class`);
     });
+  };
+
+  const handleAddToQueue = async (studentId: string) => {
+    if (!activeSection) return;
+    const st = students.find((s) => s.id === studentId);
+    if (!st) return;
+    if (st.outTimestamp > 0) {
+      showToast(`${st.name} is already out!`, 'error');
+      return;
+    }
+    if (st.passesUsed >= LIMITS.MAX_PASSES) {
+      showToast(`${st.name} has reached the ${MAX_QUARTER_PASSES}/${MAX_QUARTER_PASSES} pass limit!`, 'error');
+      return;
+    }
+    const existing = activeSection.passQueue || [];
+    if (existing.includes(studentId)) {
+      showToast(`${st.name} is already in line!`);
+      return;
+    }
+    const nextQueue = [...existing, studentId];
+    await withSync(async () => {
+      await updateSectionPassQueue(activeSection.id, nextQueue, teacherEmail);
+      showToast(`Added ${st.name} to restroom line (#${nextQueue.length})`);
+    });
+  };
+
+  const handleRemoveFromQueue = async (studentId: string) => {
+    if (!activeSection) return;
+    const existing = activeSection.passQueue || [];
+    const nextQueue = existing.filter((id) => id !== studentId);
+    await withSync(async () => {
+      await updateSectionPassQueue(activeSection.id, nextQueue, teacherEmail);
+    });
+  };
+
+  const handleMoveQueueUp = async (studentId: string) => {
+    if (!activeSection) return;
+    const existing = [...(activeSection.passQueue || [])];
+    const idx = existing.indexOf(studentId);
+    if (idx <= 0) return;
+    [existing[idx - 1], existing[idx]] = [existing[idx], existing[idx - 1]];
+    await withSync(async () => {
+      await updateSectionPassQueue(activeSection.id, existing, teacherEmail);
+    });
+  };
+
+  const handleClearQueue = async () => {
+    if (!activeSection) return;
+    await withSync(async () => {
+      await updateSectionPassQueue(activeSection.id, [], teacherEmail);
+      showToast('Cleared restroom line');
+    });
+  };
+
+  const handleOpenSpotlight = () => {
+    if (!activeSection) return;
+    const studentMap = new Map(students.map((s) => [s.id, s]));
+    const assignedCount = (activeSection.groups || []).reduce(
+      (sum, g) => sum + g.studentIds.filter((sid) => studentMap.has(sid)).length,
+      0
+    );
+    if (assignedCount === 0) {
+      showToast('Generate groups first before picking a student!', 'error');
+      return;
+    }
+    setProjectorOpen(true);
+    setSpotlightTrigger((n) => n + 1);
+  };
+
+  const handleOpenPassPopout = async () => {
+    if (pipWindowRef.current && !pipWindowRef.current.closed) {
+      pipWindowRef.current.focus();
+      return;
+    }
+    const pipApi = (
+      window as unknown as { documentPictureInPicture?: DocumentPictureInPictureApi }
+    ).documentPictureInPicture;
+
+    if (pipApi && typeof pipApi.requestWindow === 'function') {
+      try {
+        const pipWin = await pipApi.requestWindow({ width: 540, height: 700 });
+        pipWindowRef.current = pipWin;
+        pipWin.document.title = 'Restroom Line — Tiger GroupCraft';
+        pipWin.document.documentElement.className = document.documentElement.className;
+        pipWin.document.body.className = 'bg-slate-950 text-slate-100 antialiased m-0 p-0';
+
+        // Copy all stylesheets so Tailwind v4 styles work inside the pop-out window
+        document.querySelectorAll('style, link[rel="stylesheet"]').forEach((node) => {
+          pipWin.document.head.appendChild(node.cloneNode(true));
+        });
+
+        const mountNode = pipWin.document.createElement('div');
+        mountNode.className = 'h-screen overflow-hidden';
+        pipWin.document.body.appendChild(mountNode);
+        setPipContainer(mountNode);
+
+        pipWin.addEventListener('pagehide', () => {
+          setPipContainer(null);
+          pipWindowRef.current = null;
+        });
+        return;
+      } catch {
+        // Fall back to in-app PassMonitor modal (with Separate Window link) if PiP is blocked
+      }
+    }
+
+    setPassBoardModalOpen(true);
   };
 
   const handleAdjustPassCount = async (student: StudentDoc, delta: number) => {
@@ -591,6 +740,39 @@ export default function App() {
     }
   };
 
+  if (isPassBoardMode) {
+    return (
+      <>
+        <PassMonitorBoard
+          section={activeSection}
+          sections={sections}
+          students={students}
+          standalone
+          onSwitchSection={handleSwitchSection}
+          onAddToQueue={handleAddToQueue}
+          onRemoveFromQueue={handleRemoveFromQueue}
+          onMoveQueueUp={handleMoveQueueUp}
+          onClearQueue={handleClearQueue}
+          onIssuePass={handleIssuePass}
+          onReturnStudent={handleReturnStudent}
+        />
+        <div className="no-print fixed bottom-5 right-5 z-50 flex flex-col gap-2 pointer-events-none">
+          {toasts.map((toast) => (
+            <div
+              key={toast.id}
+              className={`pointer-events-auto px-4 py-2.5 rounded-xl font-bold text-xs shadow-2xl flex items-center gap-2 ${
+                toast.type === 'error' ? 'bg-rose-600 text-white' : 'bg-amber-400 text-black'
+              }`}
+            >
+              <span>{toast.type === 'error' ? '⚠️' : '✅'}</span>
+              <span>{toast.message}</span>
+            </div>
+          ))}
+        </div>
+      </>
+    );
+  }
+
   return (
     <div className="min-h-screen flex flex-col bg-slate-950 text-slate-100">
       <HeaderBar
@@ -603,7 +785,8 @@ export default function App() {
         onSwitchSection={handleSwitchSection}
         onOpenAddSection={() => setAddSectionOpen(true)}
         onOpenProjector={() => setProjectorOpen(true)}
-        onOpenSpotlight={() => setSpotlightOpen(true)}
+        onOpenSpotlight={handleOpenSpotlight}
+        onOpenPassPopout={() => void handleOpenPassPopout()}
         onSignOut={() => void signOutTeacher()}
         onSwitchTab={handleTabChange}
       />
@@ -660,6 +843,11 @@ export default function App() {
             onIssuePass={handleIssuePass}
             onReturnStudent={handleReturnStudent}
             onAdjustPassCount={handleAdjustPassCount}
+            onAddToQueue={handleAddToQueue}
+            onRemoveFromQueue={handleRemoveFromQueue}
+            onMoveQueueUp={handleMoveQueueUp}
+            onClearQueue={handleClearQueue}
+            onOpenPassPopout={() => void handleOpenPassPopout()}
             onOpenResetModal={() => setResetModalOpen(true)}
             onViewFullHistory={() => handleTabChange('history')}
             onOpenStudentHistory={openStudentDocHistory}
@@ -683,8 +871,15 @@ export default function App() {
         section={activeSection}
         students={students}
         spotlightWinner={spotlightWinner}
+        spotlightTrigger={spotlightTrigger}
+        onSpotlightWinner={(winner) => {
+          setSpotlightWinner(winner);
+          if (winner) {
+            showToast(`Spotlight: ${winner.studentName}!`);
+          }
+        }}
+        onNotifyError={(msg) => showToast(msg, 'error')}
         onClose={() => setProjectorOpen(false)}
-        onOpenSpotlight={() => setSpotlightOpen(true)}
         onOpenGroupRules={() => setProjectorRulesOpen(true)}
         onReshuffle={handleGenerateGroups}
         onMoveStudent={handleMoveStudent}
@@ -694,18 +889,53 @@ export default function App() {
         onTimerFinished={() => showToast("🔔 Time's Up!")}
       />
 
-      {/* Modals */}
-      <SpotlightModal
-        open={spotlightOpen}
-        section={activeSection}
-        students={students}
-        onWinnerPicked={(winner) => {
-          setSpotlightWinner(winner);
-          showToast(`Spotlight: ${winner.studentName}!`);
-        }}
-        onNotifyError={(msg) => showToast(msg, 'error')}
-        onClose={() => setSpotlightOpen(false)}
-      />
+      {/* Document PiP Floating Window Portal */}
+      {pipContainer &&
+        createPortal(
+          <PassMonitorBoard
+            section={activeSection}
+            students={students}
+            onAddToQueue={handleAddToQueue}
+            onRemoveFromQueue={handleRemoveFromQueue}
+            onMoveQueueUp={handleMoveQueueUp}
+            onClearQueue={handleClearQueue}
+            onIssuePass={handleIssuePass}
+            onReturnStudent={handleReturnStudent}
+            standaloneUrl={standaloneBoardUrl}
+            onClose={() => {
+              pipWindowRef.current?.close();
+              pipWindowRef.current = null;
+              setPipContainer(null);
+            }}
+          />,
+          pipContainer
+        )}
+
+      {/* Fallback In-App Modal for Browsers / Iframes Without Document PiP */}
+      {passBoardModalOpen && (
+        <div
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => setPassBoardModalOpen(false)}
+        >
+          <div
+            className="bg-slate-950 border border-slate-800 rounded-3xl max-w-xl w-full h-[85vh] overflow-hidden shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <PassMonitorBoard
+              section={activeSection}
+              students={students}
+              onAddToQueue={handleAddToQueue}
+              onRemoveFromQueue={handleRemoveFromQueue}
+              onMoveQueueUp={handleMoveQueueUp}
+              onClearQueue={handleClearQueue}
+              onIssuePass={handleIssuePass}
+              onReturnStudent={handleReturnStudent}
+              standaloneUrl={standaloneBoardUrl}
+              onClose={() => setPassBoardModalOpen(false)}
+            />
+          </div>
+        </div>
+      )}
 
       <ProjectorRulesModal
         open={projectorRulesOpen}

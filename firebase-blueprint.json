@@ -89,6 +89,10 @@
           "type": "array",
           "description": "Bounded list of up to 8 color table station assignments."
         },
+        "passQueue": {
+          "type": "array",
+          "description": "Ordered list of student IDs waiting in line for the restroom pass."
+        },
         "createdBy": {
           "type": "string",
           "description": "Verified teacher email who created this section.",
