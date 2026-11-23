@@ -12,6 +12,7 @@ import {
 import {
   MAX_QUARTER_PASSES,
   type ClassSectionDoc,
+  type PassDestination,
   type PassLogDoc,
   type StudentDoc,
 } from '../types/classroom';
@@ -54,6 +55,8 @@ interface TripRow {
   studentName: string;
   sectionId: string;
   sectionName: string;
+  destination: PassDestination;
+  quotaExempt: boolean;
   takenMs: number;
   returnedMs: number | null;
   durationSeconds: number;
@@ -85,7 +88,7 @@ export const PassHistoryTab: React.FC<PassHistoryTabProps> = ({
   students,
   passLogs,
   maxPasses = MAX_QUARTER_PASSES,
-  longPassAlertMinutes = 7,
+  longPassAlertMinutes = 8,
   onReturnStudent,
   onOpenStudentHistory,
   onEditLog,
@@ -118,6 +121,11 @@ export const PassHistoryTab: React.FC<PassHistoryTabProps> = ({
         studentName: st.name,
         sectionId: st.sectionId,
         sectionName: section?.name || matchingIssue?.sectionName || 'Current Period',
+        destination:
+          (st.activeDestination as PassDestination) ||
+          matchingIssue?.destination ||
+          'Restroom',
+        quotaExempt: Boolean(matchingIssue?.quotaExempt),
         takenMs: st.outTimestamp,
         returnedMs: null,
         durationSeconds: Math.max(0, Math.round((nowMs - st.outTimestamp) / 1000)),
@@ -143,6 +151,8 @@ export const PassHistoryTab: React.FC<PassHistoryTabProps> = ({
           studentName: log.studentName,
           sectionId: log.sectionId,
           sectionName: log.sectionName,
+          destination: log.destination || 'Restroom',
+          quotaExempt: Boolean(log.quotaExempt),
           takenMs,
           returnedMs,
           durationSeconds: secs,
@@ -191,7 +201,6 @@ export const PassHistoryTab: React.FC<PassHistoryTabProps> = ({
   const studentSummaryRows = useMemo<StudentSummaryRow[]>(() => {
     const map = new Map<string, StudentSummaryRow>();
 
-    // Seed with all students from current roster
     students.forEach((st) => {
       const isOut = st.outTimestamp > 0;
       const activeDur = isOut
@@ -214,7 +223,6 @@ export const PassHistoryTab: React.FC<PassHistoryTabProps> = ({
       });
     });
 
-    // Aggregate passLogs matching period & date filters
     passLogs.forEach((log) => {
       if (periodFilter === 'current' && section && log.sectionId !== section.id) {
         return;
@@ -324,7 +332,7 @@ export const PassHistoryTab: React.FC<PassHistoryTabProps> = ({
       });
     } else {
       csv =
-        'Date Taken,Time Taken,Time Returned,Time Out,Status,Student Name,Period,Passes Left,Teacher\n';
+        'Date Taken,Time Taken,Time Returned,Time Out,Destination,Quota Exempt,Status,Student Name,Period,Passes Left,Teacher\n';
       filteredTrips.forEach((row) => {
         const dateStr = formatDateOnly(row.takenMs);
         const timeTakenStr = formatTimeOnly(row.takenMs);
@@ -332,7 +340,7 @@ export const PassHistoryTab: React.FC<PassHistoryTabProps> = ({
         const durStr = formatDurationExact(row.durationSeconds);
         const statusStr = row.isActive ? 'Currently Out' : 'Returned';
         const passesLeftAfter = Math.max(0, maxPasses - row.passesUsedAfter);
-        csv += `"${dateStr}","${timeTakenStr}","${timeReturnedStr}","${durStr}","${statusStr}","${row.studentName.replace(
+        csv += `"${dateStr}","${timeTakenStr}","${timeReturnedStr}","${durStr}","${row.destination}","${row.quotaExempt ? 'Yes' : 'No'}","${statusStr}","${row.studentName.replace(
           /"/g,
           '""'
         )}","${row.sectionName.replace(/"/g, '""')}","${
@@ -381,7 +389,7 @@ export const PassHistoryTab: React.FC<PassHistoryTabProps> = ({
               Hall Pass History &amp; Time Out Log
             </h2>
             <p className="text-xs text-slate-400 mt-0.5">
-              Tracks exact date taken, departure &amp; return timestamps, total time out, and individual student pass history.
+              Tracks exact date taken, destinations, departure &amp; return timestamps, total time out, and individual student pass history.
             </p>
           </div>
 
@@ -541,6 +549,7 @@ export const PassHistoryTab: React.FC<PassHistoryTabProps> = ({
                   <tr>
                     <th className="py-2.5 pr-3 font-semibold">Student</th>
                     <th className="py-2.5 px-3 font-semibold">Period</th>
+                    <th className="py-2.5 px-3 font-semibold">Destination</th>
                     <th className="py-2.5 px-3 font-semibold">Date Taken</th>
                     <th className="py-2.5 px-3 font-semibold">Time Taken</th>
                     <th className="py-2.5 px-3 font-semibold">Time Returned</th>
@@ -582,6 +591,14 @@ export const PassHistoryTab: React.FC<PassHistoryTabProps> = ({
                         </td>
                         <td className="py-3 px-3 text-slate-300 whitespace-nowrap">
                           {row.sectionName}
+                        </td>
+                        <td className="py-3 px-3 whitespace-nowrap">
+                          <span className="font-semibold text-slate-200">{row.destination}</span>
+                          {row.quotaExempt && (
+                            <span className="ml-1.5 text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300">
+                              Exempt
+                            </span>
+                          )}
                         </td>
                         <td className="py-3 px-3 font-mono-tabular text-slate-300 whitespace-nowrap">
                           {formatDateOnly(row.takenMs)}
@@ -666,7 +683,7 @@ export const PassHistoryTab: React.FC<PassHistoryTabProps> = ({
                               title={`View ${row.studentName}'s history`}
                             >
                               <History className="w-3 h-3" />
-                              History
+                              Digest
                             </button>
                           </div>
                         </td>
@@ -695,7 +712,7 @@ export const PassHistoryTab: React.FC<PassHistoryTabProps> = ({
                     <th className="py-2.5 px-3 font-semibold text-right">Total Time Out</th>
                     <th className="py-2.5 px-3 font-semibold text-right">Avg Time Out</th>
                     <th className="py-2.5 px-3 font-semibold">Last Pass Taken</th>
-                    <th className="py-2.5 pl-3 font-semibold text-right">Individual Log</th>
+                    <th className="py-2.5 pl-3 font-semibold text-right">Individual Digest</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/60">
@@ -759,7 +776,7 @@ export const PassHistoryTab: React.FC<PassHistoryTabProps> = ({
                           className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-amber-400 hover:text-black text-amber-300 font-extrabold text-[11px] rounded-lg border border-amber-500/30 transition-colors cursor-pointer"
                         >
                           <History className="w-3.5 h-3.5" />
-                          View History
+                          View Digest
                         </button>
                       </td>
                     </tr>
@@ -779,6 +796,7 @@ export const PassHistoryTab: React.FC<PassHistoryTabProps> = ({
                 <tr>
                   <th className="py-2.5 pr-3 font-semibold">Student</th>
                   <th className="py-2.5 px-3 font-semibold">Period</th>
+                  <th className="py-2.5 px-3 font-semibold">Destination</th>
                   <th className="py-2.5 px-3 font-semibold">Event</th>
                   <th className="py-2.5 px-3 font-semibold">Date</th>
                   <th className="py-2.5 px-3 font-semibold">Time</th>
@@ -815,6 +833,14 @@ export const PassHistoryTab: React.FC<PassHistoryTabProps> = ({
                       </td>
                       <td className="py-2.5 px-3 text-slate-300 whitespace-nowrap">
                         {log.sectionName}
+                      </td>
+                      <td className="py-2.5 px-3 whitespace-nowrap text-slate-200 font-semibold">
+                        {log.destination || 'Restroom'}
+                        {log.quotaExempt && (
+                          <span className="ml-1.5 text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300">
+                            Exempt
+                          </span>
+                        )}
                       </td>
                       <td className="py-2.5 px-3 whitespace-nowrap">
                         <span
@@ -878,7 +904,7 @@ export const PassHistoryTab: React.FC<PassHistoryTabProps> = ({
                             className="inline-flex items-center gap-1 px-2 py-1 bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold text-[11px] rounded-lg border border-slate-700 cursor-pointer"
                           >
                             <History className="w-3 h-3" />
-                            History
+                            Digest
                           </button>
                         </div>
                       </td>

@@ -2,7 +2,7 @@
   "entities": {
     "Workspace": {
       "title": "Workspace",
-      "description": "Shared CHUH classroom workspace metadata tracking the active class period.",
+      "description": "Shared CHUH classroom workspace metadata tracking the active class period, settings, bell schedules, and timer sequences.",
       "type": "object",
       "properties": {
         "id": {
@@ -21,7 +21,7 @@
         },
         "settings": {
           "type": "object",
-          "description": "Shared classroom theme and default configuration settings."
+          "description": "Shared classroom theme, pass thresholds, dead zone rules, bell schedules, and timer sequence defaults."
         },
         "createdBy": {
           "type": "string",
@@ -50,7 +50,7 @@
     },
     "ClassSection": {
       "title": "ClassSection",
-      "description": "A class period containing group rules, station assignments, and a student subcollection.",
+      "description": "A class period containing group rules, station assignments, pairing rules, floor plan coordinates, spotlight deck state, and a student subcollection.",
       "type": "object",
       "properties": {
         "id": {
@@ -91,11 +91,35 @@
         },
         "groups": {
           "type": "array",
-          "description": "Bounded list of up to 8 color table station assignments."
+          "description": "Bounded list of up to 8 color table station assignments including optional locks, roles, and points."
         },
         "passQueue": {
           "type": "array",
           "description": "Ordered list of student IDs waiting in line for the restroom pass."
+        },
+        "floorPlan": {
+          "type": "object",
+          "description": "2D spatial classroom floor plan coordinates for tables, teacher desk, and whiteboard edge."
+        },
+        "keepApartPairs": {
+          "type": "array",
+          "description": "Bounded list of student pair keys that should not be placed together."
+        },
+        "pairTogetherPairs": {
+          "type": "array",
+          "description": "Bounded list of student pair keys that should be grouped together."
+        },
+        "recentPairKeys": {
+          "type": "array",
+          "description": "Bounded pairing memory of recent student pairs to avoid back-to-back repeats."
+        },
+        "spotlightCalledIds": {
+          "type": "array",
+          "description": "Bounded list of student IDs already drawn in non-repeating Spotlight Deck mode."
+        },
+        "spotlightDeckMode": {
+          "type": "boolean",
+          "description": "Whether Spotlight defaults to non-repeating Deck of Cards mode for this section."
         },
         "createdBy": {
           "type": "string",
@@ -137,7 +161,7 @@
     },
     "Student": {
       "title": "Student",
-      "description": "A student in a class period with attendance state and quarter hall pass tracking.",
+      "description": "A student in a class period with attendance state (present/absent/tardy), optional badge ID, and quarter hall pass tracking.",
       "type": "object",
       "properties": {
         "id": {
@@ -169,7 +193,17 @@
         },
         "present": {
           "type": "boolean",
-          "description": "Whether the student is marked present for grouping."
+          "description": "Whether the student is in class (present or tardy) for grouping."
+        },
+        "attendanceStatus": {
+          "type": "string",
+          "description": "Detailed attendance status.",
+          "enum": ["present", "absent", "tardy"]
+        },
+        "badgeCode": {
+          "type": "string",
+          "description": "Optional student ID badge code for kiosk scan check-in/out.",
+          "maxLength": 32
         },
         "passesUsed": {
           "type": "number",
@@ -178,6 +212,11 @@
         "outTimestamp": {
           "type": "number",
           "description": "Epoch milliseconds when student left room, or 0 when in class."
+        },
+        "activeDestination": {
+          "type": "string",
+          "description": "Destination tag while student is currently out of the room.",
+          "enum": ["Restroom", "Water", "Nurse", "Counselor", "Main Office"]
         },
         "createdBy": {
           "type": "string",
@@ -266,6 +305,15 @@
           "description": "Pass event type.",
           "enum": ["issued", "returned", "adjusted", "reset"]
         },
+        "destination": {
+          "type": "string",
+          "description": "Destination tag for the pass trip.",
+          "enum": ["Restroom", "Water", "Nurse", "Counselor", "Main Office"]
+        },
+        "quotaExempt": {
+          "type": "boolean",
+          "description": "Whether this pass was exempt from deducting a quarter pass ticket."
+        },
         "passesUsedAfter": {
           "type": "number",
           "description": "Student's pass count after this action (0-10)."
@@ -336,7 +384,7 @@
       "schema": {
         "$ref": "#/entities/PassLog"
       },
-      "description": "Append-only hall pass activity log for live classroom accountability."
+      "description": "Editable hall pass activity log for live classroom accountability."
     }
   }
 }

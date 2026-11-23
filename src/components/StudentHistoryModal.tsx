@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
+  Check,
   CheckCircle2,
+  ClipboardCopy,
   Clock,
   Download,
   History,
@@ -10,6 +12,7 @@ import {
 } from 'lucide-react';
 import {
   MAX_QUARTER_PASSES,
+  type PassDestination,
   type PassLogDoc,
   type StudentDoc,
 } from '../types/classroom';
@@ -105,12 +108,15 @@ interface StudentHistoryModalProps {
   longPassAlertMinutes?: number;
   onReturnStudent?: (student: StudentDoc) => Promise<void>;
   onEditLog?: (log: PassLogDoc) => void;
+  onCopiedReport?: (msg: string) => void;
   onClose: () => void;
 }
 
 interface StudentTripItem {
   id: string;
   sectionName: string;
+  destination: PassDestination;
+  quotaExempt: boolean;
   takenMs: number;
   returnedMs: number | null;
   durationSeconds: number;
@@ -124,17 +130,20 @@ export const StudentHistoryModal: React.FC<StudentHistoryModalProps> = ({
   target,
   passLogs,
   maxPasses = MAX_QUARTER_PASSES,
-  longPassAlertMinutes = 7,
+  longPassAlertMinutes = 8,
   onReturnStudent,
   onEditLog,
+  onCopiedReport,
   onClose,
 }) => {
   const [viewMode, setViewMode] = useState<'trips' | 'events'>('trips');
   const [nowMs, setNowMs] = useState(() => Date.now());
+  const [copiedReport, setCopiedReport] = useState(false);
 
   useEffect(() => {
     if (!target) return;
     setViewMode('trips');
+    setCopiedReport(false);
     setNowMs(Date.now());
     const id = window.setInterval(() => setNowMs(Date.now()), 1000);
     const handleKey = (e: KeyboardEvent) => {
@@ -168,6 +177,11 @@ export const StudentHistoryModal: React.FC<StudentHistoryModalProps> = ({
       items.push({
         id: `active_${liveStudent.id}`,
         sectionName: target.sectionName || issueLog?.sectionName || 'Current Period',
+        destination:
+          (liveStudent.activeDestination as PassDestination) ||
+          issueLog?.destination ||
+          'Restroom',
+        quotaExempt: Boolean(issueLog?.quotaExempt),
         takenMs: liveStudent.outTimestamp,
         returnedMs: null,
         durationSeconds: Math.max(
@@ -190,6 +204,8 @@ export const StudentHistoryModal: React.FC<StudentHistoryModalProps> = ({
         items.push({
           id: log.id,
           sectionName: log.sectionName,
+          destination: log.destination || 'Restroom',
+          quotaExempt: Boolean(log.quotaExempt),
           takenMs: getLogTakenMillis(log),
           returnedMs: getLogReturnedMillis(log),
           durationSeconds: secs,
@@ -227,10 +243,48 @@ export const StudentHistoryModal: React.FC<StudentHistoryModalProps> = ({
 
   const displayPeriod =
     target.sectionName || studentLogs[0]?.sectionName || 'Class Period';
+  const passesLeft = Math.max(0, maxPasses - passesUsedDisplay);
+
+  const handleCopyParentDigest = async () => {
+    const lines: string[] = [
+      `HALL PASS DIGEST — ${target.name}`,
+      `Class: ${displayPeriod}`,
+      `Quarter Pass Balance: ${passesLeft} / ${maxPasses} remaining (${passesUsedDisplay} used)`,
+      `Total Recorded Trips: ${trips.length}`,
+      `Total Time Out of Class: ${formatDurationExact(totalTimeSeconds)}`,
+      `Average Trip Duration: ${formatDurationExact(avgTimeSeconds)} (Longest: ${formatDurationExact(longestSeconds)})`,
+      '',
+      'Trip Breakdown:',
+    ];
+
+    if (trips.length === 0) {
+      lines.push('• No hall pass trips recorded yet.');
+    } else {
+      trips.forEach((row, idx) => {
+        const dateStr = formatDateOnly(row.takenMs);
+        const startStr = formatTimeOnly(row.takenMs);
+        const endStr = row.returnedMs ? formatTimeOnly(row.returnedMs) : 'Still Out';
+        const durStr = formatDurationExact(row.durationSeconds);
+        const exemptTag = row.quotaExempt ? ' [Quota Exempt]' : '';
+        lines.push(
+          `${idx + 1}. ${dateStr} · ${startStr} → ${endStr} (${durStr}) · ${row.destination}${exemptTag}`
+        );
+      });
+    }
+
+    try {
+      await navigator.clipboard.writeText(lines.join('\n'));
+      setCopiedReport(true);
+      onCopiedReport?.(`Copied pass digest report for ${target.name}`);
+      window.setTimeout(() => setCopiedReport(false), 2500);
+    } catch {
+      // ignore clipboard errors
+    }
+  };
 
   const handleExportStudentCSV = () => {
     let csv =
-      'Student Name,Period,Date Taken,Time Taken,Time Returned,Time Out,Status,Passes Left,Teacher\n';
+      'Student Name,Period,Destination,Quota Exempt,Date Taken,Time Taken,Time Returned,Time Out,Status,Passes Left,Teacher\n';
     trips.forEach((row) => {
       const dateStr = formatDateOnly(row.takenMs);
       const timeTakenStr = formatTimeOnly(row.takenMs);
@@ -240,7 +294,7 @@ export const StudentHistoryModal: React.FC<StudentHistoryModalProps> = ({
       const durStr = formatDurationExact(row.durationSeconds);
       const statusStr = row.isActive ? 'Currently Out' : 'Returned';
       const passesLeftAfter = Math.max(0, maxPasses - row.passesUsedAfter);
-      csv += `"${target.name.replace(/"/g, '""')}","${row.sectionName.replace(/"/g, '""')}","${dateStr}","${timeTakenStr}","${timeReturnedStr}","${durStr}","${statusStr}","${passesLeftAfter}/${maxPasses}","${row.actorEmail}"\n`;
+      csv += `"${target.name.replace(/"/g, '""')}","${row.sectionName.replace(/"/g, '""')}","${row.destination}","${row.quotaExempt ? 'Yes' : 'No'}","${dateStr}","${timeTakenStr}","${timeReturnedStr}","${durStr}","${statusStr}","${passesLeftAfter}/${maxPasses}","${row.actorEmail}"\n`;
     });
 
     const blob = new Blob([csv], { type: 'text/csv' });
@@ -279,12 +333,12 @@ export const StudentHistoryModal: React.FC<StudentHistoryModalProps> = ({
                 )}
               </h3>
               <p className="text-xs text-slate-400 mt-0.5">
-                Individual Pass History · {displayPeriod}
+                Individual Pass Digest · {displayPeriod}
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {isCurrentlyOut && liveStudent && onReturnStudent && (
               <button
                 onClick={() => void onReturnStudent(liveStudent)}
@@ -295,12 +349,29 @@ export const StudentHistoryModal: React.FC<StudentHistoryModalProps> = ({
               </button>
             )}
             <button
+              onClick={() => void handleCopyParentDigest()}
+              className="px-3.5 py-2 bg-amber-400 hover:bg-amber-300 text-black font-black text-xs rounded-xl flex items-center gap-1.5 cursor-pointer"
+              title="Copy formatted pass digest ready to paste into parent/counselor email"
+            >
+              {copiedReport ? (
+                <>
+                  <Check className="w-3.5 h-3.5" />
+                  Copied Report!
+                </>
+              ) : (
+                <>
+                  <ClipboardCopy className="w-3.5 h-3.5" />
+                  Copy Report
+                </>
+              )}
+            </button>
+            <button
               onClick={handleExportStudentCSV}
               disabled={trips.length === 0}
               className="px-3 py-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-amber-300 font-bold text-xs rounded-xl border border-slate-700 flex items-center gap-1.5 cursor-pointer"
             >
               <Download className="w-3.5 h-3.5" />
-              Export CSV
+              CSV
             </button>
             <button
               onClick={onClose}
@@ -319,7 +390,7 @@ export const StudentHistoryModal: React.FC<StudentHistoryModalProps> = ({
               Passes Left
             </span>
             <span className="text-xl font-black text-amber-300 font-mono-tabular mt-0.5 block">
-              {Math.max(0, maxPasses - passesUsedDisplay)} / {maxPasses}
+              {passesLeft} / {maxPasses}
             </span>
           </div>
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-3">
@@ -354,7 +425,7 @@ export const StudentHistoryModal: React.FC<StudentHistoryModalProps> = ({
             <History className="w-4 h-4 text-amber-400" />
             <span>
               {viewMode === 'trips'
-                ? 'Showing individual hall pass trips with exact dates and durations'
+                ? 'Showing individual hall pass trips with destinations, exact dates, and durations'
                 : 'Showing every recorded issue, return, adjustment, and reset'}
             </span>
           </div>
@@ -395,10 +466,10 @@ export const StudentHistoryModal: React.FC<StudentHistoryModalProps> = ({
                   <thead className="text-slate-400 border-b border-slate-800">
                     <tr>
                       <th className="py-2.5 pr-3 font-semibold">Date Taken</th>
+                      <th className="py-2.5 px-3 font-semibold">Destination</th>
                       <th className="py-2.5 px-3 font-semibold">Time Taken</th>
                       <th className="py-2.5 px-3 font-semibold">Time Returned</th>
                       <th className="py-2.5 px-3 font-semibold text-right">Time Out</th>
-                      <th className="py-2.5 px-3 font-semibold">Period</th>
                       <th className="py-2.5 px-3 font-semibold text-right">Passes Left</th>
                       <th className="py-2.5 pl-3 font-semibold text-right">Teacher</th>
                     </tr>
@@ -417,6 +488,14 @@ export const StudentHistoryModal: React.FC<StudentHistoryModalProps> = ({
                         >
                           <td className="py-3 pr-3 font-mono-tabular text-slate-200 whitespace-nowrap font-semibold">
                             {formatDateOnly(row.takenMs)}
+                          </td>
+                          <td className="py-3 px-3 whitespace-nowrap">
+                            <span className="font-bold text-slate-200">{row.destination}</span>
+                            {row.quotaExempt && (
+                              <span className="ml-1.5 text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300">
+                                Exempt
+                              </span>
+                            )}
                           </td>
                           <td className="py-3 px-3 font-mono-tabular text-slate-200 whitespace-nowrap">
                             {formatTimeOnly(row.takenMs)}
@@ -445,9 +524,6 @@ export const StudentHistoryModal: React.FC<StudentHistoryModalProps> = ({
                               <Clock className="w-3 h-3" />
                               {formatDurationExact(row.durationSeconds)}
                             </span>
-                          </td>
-                          <td className="py-3 px-3 text-slate-400 whitespace-nowrap">
-                            {row.sectionName}
                           </td>
                           <td className="py-3 px-3 text-right font-mono-tabular text-slate-300 whitespace-nowrap">
                             {Math.max(0, maxPasses - row.passesUsedAfter)}/{maxPasses}
@@ -484,10 +560,10 @@ export const StudentHistoryModal: React.FC<StudentHistoryModalProps> = ({
                 <thead className="text-slate-400 border-b border-slate-800">
                   <tr>
                     <th className="py-2.5 pr-3 font-semibold">Event</th>
+                    <th className="py-2.5 px-3 font-semibold">Destination</th>
                     <th className="py-2.5 px-3 font-semibold">Date</th>
                     <th className="py-2.5 px-3 font-semibold">Time</th>
                     <th className="py-2.5 px-3 font-semibold text-right">Time Out</th>
-                    <th className="py-2.5 px-3 font-semibold">Period</th>
                     <th className="py-2.5 px-3 font-semibold text-right">Passes Left</th>
                     <th className="py-2.5 pl-3 font-semibold text-right">Teacher</th>
                   </tr>
@@ -519,6 +595,14 @@ export const StudentHistoryModal: React.FC<StudentHistoryModalProps> = ({
                             {log.action === 'reset' && 'Quarter Reset'}
                           </span>
                         </td>
+                        <td className="py-2.5 px-3 whitespace-nowrap text-slate-200 font-semibold">
+                          {log.destination || 'Restroom'}
+                          {log.quotaExempt && (
+                            <span className="ml-1.5 text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300">
+                              Exempt
+                            </span>
+                          )}
+                        </td>
                         <td className="py-2.5 px-3 font-mono-tabular text-slate-300 whitespace-nowrap">
                           {formatDateOnly(eventMs)}
                         </td>
@@ -527,9 +611,6 @@ export const StudentHistoryModal: React.FC<StudentHistoryModalProps> = ({
                         </td>
                         <td className="py-2.5 px-3 text-right font-mono-tabular text-slate-200 whitespace-nowrap">
                           {log.action === 'returned' ? formatDurationExact(secs) : '—'}
-                        </td>
-                        <td className="py-2.5 px-3 text-slate-400 whitespace-nowrap">
-                          {log.sectionName}
                         </td>
                         <td className="py-2.5 px-3 text-right font-mono-tabular text-slate-300 whitespace-nowrap">
                           {Math.max(0, maxPasses - log.passesUsedAfter)}/{maxPasses}

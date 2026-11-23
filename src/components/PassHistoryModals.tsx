@@ -2,7 +2,9 @@ import React, { useEffect, useState } from 'react';
 import { AlertTriangle, Clock, Pencil, Trash2, X } from 'lucide-react';
 import {
   MAX_QUARTER_PASSES,
+  PASS_DESTINATIONS,
   type PassAction,
+  type PassDestination,
   type PassLogDoc,
   type StudentDoc,
 } from '../types/classroom';
@@ -46,6 +48,8 @@ interface EditPassLogModalProps {
     log: PassLogDoc,
     patch: {
       action: PassAction;
+      destination: PassDestination;
+      quotaExempt: boolean;
       passesUsedAfter: number;
       takenAt: number;
       returnedAt: number;
@@ -71,6 +75,8 @@ export const EditPassLogModal: React.FC<EditPassLogModalProps> = ({
   onClose,
 }) => {
   const [action, setAction] = useState<PassAction>('returned');
+  const [destination, setDestination] = useState<PassDestination>('Restroom');
+  const [quotaExempt, setQuotaExempt] = useState(false);
   const [takenDate, setTakenDate] = useState('');
   const [takenTime, setTakenTime] = useState('');
   const [returnedDate, setReturnedDate] = useState('');
@@ -87,6 +93,8 @@ export const EditPassLogModal: React.FC<EditPassLogModalProps> = ({
     setConfirmDelete(false);
     setSyncLiveStudent(false);
     setAction(log.action);
+    setDestination(log.destination || 'Restroom');
+    setQuotaExempt(Boolean(log.quotaExempt));
 
     const takenMs =
       log.action === 'returned'
@@ -155,6 +163,8 @@ export const EditPassLogModal: React.FC<EditPassLogModalProps> = ({
         log,
         {
           action,
+          destination,
+          quotaExempt,
           passesUsedAfter,
           takenAt: tMs,
           returnedAt: rMs,
@@ -200,7 +210,7 @@ export const EditPassLogModal: React.FC<EditPassLogModalProps> = ({
       <form
         onSubmit={handleSubmit}
         onClick={(e) => e.stopPropagation()}
-        className="bg-slate-900 border border-slate-800 rounded-3xl max-w-lg w-full p-6 space-y-5 shadow-2xl"
+        className="bg-slate-900 border border-slate-800 rounded-3xl max-w-lg w-full p-6 space-y-5 shadow-2xl max-h-[90vh] overflow-y-auto"
       >
         <div className="flex items-start justify-between gap-3 border-b border-slate-800 pb-4">
           <div className="flex items-center gap-2.5 min-w-0">
@@ -250,6 +260,27 @@ export const EditPassLogModal: React.FC<EditPassLogModalProps> = ({
 
             <div className="space-y-1">
               <label
+                htmlFor="edit-log-destination"
+                className="text-xs font-bold text-slate-300 block"
+              >
+                Destination
+              </label>
+              <select
+                id="edit-log-destination"
+                value={destination}
+                onChange={(e) => setDestination(e.target.value as PassDestination)}
+                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs font-bold text-white focus:outline-none focus:ring-2 focus:ring-amber-400 cursor-pointer"
+              >
+                {PASS_DESTINATIONS.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="space-y-1">
+              <label
                 htmlFor="edit-log-passes-left"
                 className="text-xs font-bold text-slate-300 block"
               >
@@ -268,6 +299,20 @@ export const EditPassLogModal: React.FC<EditPassLogModalProps> = ({
                 }
                 className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs font-black text-amber-300 font-mono-tabular focus:outline-none focus:ring-2 focus:ring-amber-400"
               />
+            </div>
+
+            <div className="flex items-end pb-1">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={quotaExempt}
+                  onChange={(e) => setQuotaExempt(e.target.checked)}
+                  className="w-4 h-4 rounded border-slate-700 bg-slate-950 text-amber-400 cursor-pointer"
+                />
+                <span className="text-xs font-bold text-slate-200">
+                  Quota Exempt (No Ticket Used)
+                </span>
+              </label>
             </div>
           </div>
 

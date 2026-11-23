@@ -41,12 +41,20 @@ service cloud.firestore {
         && settings.keys().hasAll([
           'theme', 'defaultTab', 'defaultQuickSize', 'defaultQuickCount',
           'defaultForceExactCount', 'defaultTimerSeconds', 'timerSoundEnabled',
-          'longPassAlertMinutes', 'maxQuarterPasses'
+          'warnPassAlertMinutes', 'longPassAlertMinutes', 'overdueSoundEnabled',
+          'maxQuarterPasses', 'autoRotateRoles', 'avoidRecentPairs',
+          'deadZoneEnabled', 'deadZoneStartMinutes', 'deadZoneEndMinutes',
+          'exemptDestinations', 'autoSwitchPeriod', 'autoSwitchLeadMinutes',
+          'activeScheduleId', 'bellSchedules', 'timerStages'
         ])
         && settings.keys().hasOnly([
           'theme', 'defaultTab', 'defaultQuickSize', 'defaultQuickCount',
           'defaultForceExactCount', 'defaultTimerSeconds', 'timerSoundEnabled',
-          'longPassAlertMinutes', 'maxQuarterPasses'
+          'warnPassAlertMinutes', 'longPassAlertMinutes', 'overdueSoundEnabled',
+          'maxQuarterPasses', 'autoRotateRoles', 'avoidRecentPairs',
+          'deadZoneEnabled', 'deadZoneStartMinutes', 'deadZoneEndMinutes',
+          'exemptDestinations', 'autoSwitchPeriod', 'autoSwitchLeadMinutes',
+          'activeScheduleId', 'bellSchedules', 'timerStages'
         ])
         && settings.theme is string && settings.theme.size() >= 1 && settings.theme.size() <= 32
         && settings.theme in ['gold', 'sapphire', 'emerald', 'violet', 'crimson', 'tangerine']
@@ -57,8 +65,24 @@ service cloud.firestore {
         && settings.defaultForceExactCount is bool
         && settings.defaultTimerSeconds is int && settings.defaultTimerSeconds >= 10 && settings.defaultTimerSeconds <= 59999
         && settings.timerSoundEnabled is bool
+        && settings.warnPassAlertMinutes is int && settings.warnPassAlertMinutes >= 1 && settings.warnPassAlertMinutes <= 30
         && settings.longPassAlertMinutes is int && settings.longPassAlertMinutes >= 1 && settings.longPassAlertMinutes <= 60
-        && settings.maxQuarterPasses is int && settings.maxQuarterPasses >= 1 && settings.maxQuarterPasses <= 10;
+        && settings.overdueSoundEnabled is bool
+        && settings.maxQuarterPasses is int && settings.maxQuarterPasses >= 1 && settings.maxQuarterPasses <= 10
+        && settings.autoRotateRoles is bool
+        && settings.avoidRecentPairs is bool
+        && settings.deadZoneEnabled is bool
+        && settings.deadZoneStartMinutes is int && settings.deadZoneStartMinutes >= 0 && settings.deadZoneStartMinutes <= 30
+        && settings.deadZoneEndMinutes is int && settings.deadZoneEndMinutes >= 0 && settings.deadZoneEndMinutes <= 30
+        && settings.exemptDestinations is list && settings.exemptDestinations.size() <= 5
+        && (settings.exemptDestinations.size() == 0 || (settings.exemptDestinations[0] is string && settings.exemptDestinations[0].size() <= 32))
+        && settings.autoSwitchPeriod is bool
+        && settings.autoSwitchLeadMinutes is int && settings.autoSwitchLeadMinutes >= 0 && settings.autoSwitchLeadMinutes <= 15
+        && settings.activeScheduleId is string && settings.activeScheduleId.size() >= 1 && settings.activeScheduleId.size() <= 64
+        && settings.bellSchedules is list && settings.bellSchedules.size() <= 6
+        && (settings.bellSchedules.size() == 0 || settings.bellSchedules[0] is map)
+        && settings.timerStages is list && settings.timerStages.size() <= 15
+        && (settings.timerStages.size() == 0 || settings.timerStages[0] is map);
     }
 
     function isValidWorkspace(data, workspaceId) {
@@ -78,12 +102,37 @@ service cloud.firestore {
     function isValidGroupEntry(grp) {
       return grp is map
         && grp.keys().hasAll(['id', 'colorIndex', 'name', 'studentIds'])
-        && grp.keys().hasOnly(['id', 'colorIndex', 'name', 'studentIds'])
+        && grp.keys().hasOnly([
+          'id', 'colorIndex', 'name', 'studentIds',
+          'lockedStudentIds', 'roles', 'points'
+        ])
         && isValidId(grp.id)
         && grp.colorIndex is int && grp.colorIndex >= 0 && grp.colorIndex <= 7
         && grp.name is string && grp.name.size() >= 1 && grp.name.size() <= 60
         && grp.studentIds is list && grp.studentIds.size() <= 100
-        && (grp.studentIds.size() == 0 || isValidId(grp.studentIds[0]));
+        && (grp.studentIds.size() == 0 || isValidId(grp.studentIds[0]))
+        && (!('lockedStudentIds' in grp) || (
+          grp.lockedStudentIds is list
+          && grp.lockedStudentIds.size() <= 100
+          && (grp.lockedStudentIds.size() == 0 || isValidId(grp.lockedStudentIds[0]))
+        ))
+        && (!('roles' in grp) || (grp.roles is map && grp.roles.size() <= 100))
+        && (!('points' in grp) || (grp.points is int && grp.points >= -999 && grp.points <= 999));
+    }
+
+    function isValidFloorPlan(fp) {
+      return fp is map
+        && fp.keys().hasAll(['whiteboardEdge', 'teacherDesk', 'tables'])
+        && fp.keys().hasOnly(['whiteboardEdge', 'teacherDesk', 'tables'])
+        && fp.whiteboardEdge is string && fp.whiteboardEdge in ['top', 'bottom', 'left', 'right']
+        && fp.teacherDesk is map
+        && fp.teacherDesk.keys().hasAll(['x', 'y'])
+        && fp.teacherDesk.keys().hasOnly(['x', 'y'])
+        && (fp.teacherDesk.x is int || fp.teacherDesk.x is float)
+        && (fp.teacherDesk.y is int || fp.teacherDesk.y is float)
+        && fp.teacherDesk.x >= 0 && fp.teacherDesk.x <= 100
+        && fp.teacherDesk.y >= 0 && fp.teacherDesk.y <= 100
+        && fp.tables is map && fp.tables.size() <= 12;
     }
 
     function isValidSection(data, workspaceId, sectionId) {
@@ -93,7 +142,10 @@ service cloud.firestore {
         ])
         && data.keys().hasOnly([
           'id', 'workspaceId', 'name', 'order', 'quickSize', 'quickCount',
-          'forceExactCount', 'groups', 'passQueue', 'createdBy', 'updatedBy', 'createdAt', 'updatedAt'
+          'forceExactCount', 'groups', 'passQueue', 'floorPlan',
+          'keepApartPairs', 'pairTogetherPairs', 'recentPairKeys',
+          'spotlightCalledIds', 'spotlightDeckMode',
+          'createdBy', 'updatedBy', 'createdAt', 'updatedAt'
         ])
         && data.id == sectionId
         && data.workspaceId == workspaceId
@@ -111,6 +163,28 @@ service cloud.firestore {
           && data.passQueue.size() <= 100
           && (data.passQueue.size() == 0 || isValidId(data.passQueue[0]))
         ))
+        && (!('floorPlan' in data) || isValidFloorPlan(data.floorPlan))
+        && (!('keepApartPairs' in data) || (
+          data.keepApartPairs is list
+          && data.keepApartPairs.size() <= 50
+          && (data.keepApartPairs.size() == 0 || (data.keepApartPairs[0] is string && data.keepApartPairs[0].size() <= 260))
+        ))
+        && (!('pairTogetherPairs' in data) || (
+          data.pairTogetherPairs is list
+          && data.pairTogetherPairs.size() <= 50
+          && (data.pairTogetherPairs.size() == 0 || (data.pairTogetherPairs[0] is string && data.pairTogetherPairs[0].size() <= 260))
+        ))
+        && (!('recentPairKeys' in data) || (
+          data.recentPairKeys is list
+          && data.recentPairKeys.size() <= 300
+          && (data.recentPairKeys.size() == 0 || (data.recentPairKeys[0] is string && data.recentPairKeys[0].size() <= 260))
+        ))
+        && (!('spotlightCalledIds' in data) || (
+          data.spotlightCalledIds is list
+          && data.spotlightCalledIds.size() <= 150
+          && (data.spotlightCalledIds.size() == 0 || isValidId(data.spotlightCalledIds[0]))
+        ))
+        && (!('spotlightDeckMode' in data) || data.spotlightDeckMode is bool)
         && data.createdBy is string && data.createdBy.size() >= 3 && data.createdBy.size() <= 256
         && data.updatedBy is string && data.updatedBy.size() >= 3 && data.updatedBy.size() <= 256
         && data.updatedBy == request.auth.token.email.lower()
@@ -125,6 +199,7 @@ service cloud.firestore {
         ])
         && data.keys().hasOnly([
           'id', 'workspaceId', 'sectionId', 'name', 'present',
+          'attendanceStatus', 'badgeCode', 'activeDestination',
           'passesUsed', 'outTimestamp', 'createdBy', 'updatedBy', 'createdAt', 'updatedAt'
         ])
         && data.id == studentId
@@ -135,6 +210,9 @@ service cloud.firestore {
         && isValidId(data.sectionId)
         && data.name is string && data.name.size() >= 1 && data.name.size() <= 100
         && data.present is bool
+        && (!('attendanceStatus' in data) || (data.attendanceStatus is string && data.attendanceStatus in ['present', 'absent', 'tardy']))
+        && (!('badgeCode' in data) || (data.badgeCode is string && data.badgeCode.size() <= 32))
+        && (!('activeDestination' in data) || (data.activeDestination is string && data.activeDestination in ['', 'Restroom', 'Water', 'Nurse', 'Counselor', 'Main Office']))
         && data.passesUsed is int && data.passesUsed >= 0 && data.passesUsed <= 10
         && (data.outTimestamp is int || data.outTimestamp is float)
         && data.outTimestamp >= 0
@@ -152,7 +230,8 @@ service cloud.firestore {
         ])
         && data.keys().hasOnly([
           'id', 'workspaceId', 'sectionId', 'sectionName', 'studentId',
-          'studentName', 'action', 'passesUsedAfter', 'durationMinutes', 'actorEmail', 'createdAt',
+          'studentName', 'action', 'destination', 'quotaExempt',
+          'passesUsedAfter', 'durationMinutes', 'actorEmail', 'createdAt',
           'takenAt', 'returnedAt', 'durationSeconds'
         ])
         && data.id == logId
@@ -164,6 +243,8 @@ service cloud.firestore {
         && isValidId(data.studentId)
         && data.studentName is string && data.studentName.size() >= 1 && data.studentName.size() <= 100
         && data.action in ['issued', 'returned', 'adjusted', 'reset']
+        && (!('destination' in data) || (data.destination is string && data.destination in ['Restroom', 'Water', 'Nurse', 'Counselor', 'Main Office']))
+        && (!('quotaExempt' in data) || data.quotaExempt is bool)
         && data.passesUsedAfter is int && data.passesUsedAfter >= 0 && data.passesUsedAfter <= 10
         && (data.durationMinutes is int || data.durationMinutes is float)
         && data.durationMinutes >= 0 && data.durationMinutes <= 10080
@@ -201,7 +282,8 @@ service cloud.firestore {
         && incoming().updatedAt == request.time
         && (
           incoming().diff(existing()).affectedKeys().hasOnly(['activeSectionId', 'updatedBy', 'updatedAt']) ||
-          incoming().diff(existing()).affectedKeys().hasOnly(['settings', 'updatedBy', 'updatedAt'])
+          incoming().diff(existing()).affectedKeys().hasOnly(['settings', 'updatedBy', 'updatedAt']) ||
+          incoming().diff(existing()).affectedKeys().hasOnly(['activeSectionId', 'settings', 'updatedBy', 'updatedAt'])
         );
 
       allow delete: if false;
@@ -243,9 +325,23 @@ service cloud.firestore {
             incoming().diff(existing()).affectedKeys().hasOnly(['name', 'updatedBy', 'updatedAt']) ||
             incoming().diff(existing()).affectedKeys().hasOnly(['quickSize', 'quickCount', 'forceExactCount', 'updatedBy', 'updatedAt']) ||
             incoming().diff(existing()).affectedKeys().hasOnly(['groups', 'updatedBy', 'updatedAt']) ||
+            incoming().diff(existing()).affectedKeys().hasOnly(['groups', 'recentPairKeys', 'updatedBy', 'updatedAt']) ||
             incoming().diff(existing()).affectedKeys().hasOnly(['passQueue', 'updatedBy', 'updatedAt']) ||
             incoming().diff(existing()).affectedKeys().hasOnly(['groups', 'passQueue', 'updatedBy', 'updatedAt']) ||
-            incoming().diff(existing()).affectedKeys().hasOnly(['name', 'order', 'quickSize', 'quickCount', 'forceExactCount', 'groups', 'passQueue', 'updatedBy', 'updatedAt'])
+            incoming().diff(existing()).affectedKeys().hasOnly(['floorPlan', 'updatedBy', 'updatedAt']) ||
+            incoming().diff(existing()).affectedKeys().hasOnly(['keepApartPairs', 'pairTogetherPairs', 'recentPairKeys', 'updatedBy', 'updatedAt']) ||
+            incoming().diff(existing()).affectedKeys().hasOnly(['keepApartPairs', 'updatedBy', 'updatedAt']) ||
+            incoming().diff(existing()).affectedKeys().hasOnly(['pairTogetherPairs', 'updatedBy', 'updatedAt']) ||
+            incoming().diff(existing()).affectedKeys().hasOnly(['recentPairKeys', 'updatedBy', 'updatedAt']) ||
+            incoming().diff(existing()).affectedKeys().hasOnly(['spotlightCalledIds', 'updatedBy', 'updatedAt']) ||
+            incoming().diff(existing()).affectedKeys().hasOnly(['spotlightDeckMode', 'updatedBy', 'updatedAt']) ||
+            incoming().diff(existing()).affectedKeys().hasOnly(['spotlightCalledIds', 'spotlightDeckMode', 'updatedBy', 'updatedAt']) ||
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'name', 'order', 'quickSize', 'quickCount', 'forceExactCount',
+              'groups', 'passQueue', 'floorPlan', 'keepApartPairs', 'pairTogetherPairs',
+              'recentPairKeys', 'spotlightCalledIds', 'spotlightDeckMode',
+              'updatedBy', 'updatedAt'
+            ])
           );
 
         allow delete: if isAuthorizedTeacher()
@@ -292,12 +388,16 @@ service cloud.firestore {
             && incoming().updatedAt == request.time
             && exists(/databases/$(database)/documents/workspaces/$(workspaceId)/sections/$(sectionId))
             && (
-              // Action: Toggle attendance
+              // Action: Toggle attendance (Present / Tardy / Absent)
               incoming().diff(existing()).affectedKeys().hasOnly(['present', 'updatedBy', 'updatedAt']) ||
+              incoming().diff(existing()).affectedKeys().hasOnly(['present', 'attendanceStatus', 'updatedBy', 'updatedAt']) ||
               // Action: Issue, return, adjust, or reset hall pass
               incoming().diff(existing()).affectedKeys().hasOnly(['passesUsed', 'outTimestamp', 'updatedBy', 'updatedAt']) ||
-              // Action: Rename student
-              incoming().diff(existing()).affectedKeys().hasOnly(['name', 'updatedBy', 'updatedAt'])
+              incoming().diff(existing()).affectedKeys().hasOnly(['passesUsed', 'outTimestamp', 'activeDestination', 'updatedBy', 'updatedAt']) ||
+              // Action: Rename student or update badge ID
+              incoming().diff(existing()).affectedKeys().hasOnly(['name', 'updatedBy', 'updatedAt']) ||
+              incoming().diff(existing()).affectedKeys().hasOnly(['badgeCode', 'updatedBy', 'updatedAt']) ||
+              incoming().diff(existing()).affectedKeys().hasOnly(['name', 'badgeCode', 'updatedBy', 'updatedAt'])
             );
 
           allow delete: if isAuthorizedTeacher()
@@ -341,8 +441,8 @@ service cloud.firestore {
           && incoming().createdAt == existing().createdAt
           && exists(/databases/$(database)/documents/workspaces/$(workspaceId))
           && incoming().diff(existing()).affectedKeys().hasOnly([
-            'sectionName', 'studentName', 'action', 'passesUsedAfter',
-            'durationMinutes', 'durationSeconds', 'takenAt', 'returnedAt', 'actorEmail'
+            'sectionName', 'studentName', 'action', 'destination', 'quotaExempt',
+            'passesUsedAfter', 'durationMinutes', 'durationSeconds', 'takenAt', 'returnedAt', 'actorEmail'
           ]);
 
         allow delete: if isAuthorizedTeacher()

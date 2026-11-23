@@ -11,11 +11,14 @@ export const LIMITS = {
   SECTION_NAME_MAX: 120,
   STUDENT_NAME_MAX: 100,
   GROUP_NAME_MAX: 60,
+  BADGE_CODE_MAX: 32,
   EMAIL_MAX: 256,
   MAX_GROUPS: 8,
   MAX_GROUP_STUDENTS: 100,
   MAX_PASSES: 10,
   DEFAULT_MAX_PASSES: 4,
+  MAX_PAIR_RULES: 50,
+  MAX_RECENT_PAIRS: 300,
   MAX_DURATION_MINUTES: 10080,
   MAX_DURATION_SECONDS: 604800,
   ID_PATTERN: /^[a-zA-Z0-9_-]+$/,
@@ -85,6 +88,104 @@ export const THEME_OPTIONS: ThemeOption[] = [
 
 export type ActiveTab = 'groups' | 'roster' | 'settings' | 'passes' | 'history';
 
+export type AttendanceStatus = 'present' | 'absent' | 'tardy';
+
+export type PassDestination = 'Restroom' | 'Water' | 'Nurse' | 'Counselor' | 'Main Office';
+
+export const PASS_DESTINATIONS: Array<{
+  id: PassDestination;
+  label: string;
+  shortLabel: string;
+  defaultExempt: boolean;
+}> = [
+  { id: 'Restroom', label: 'Restroom', shortLabel: 'Restroom', defaultExempt: false },
+  { id: 'Water', label: 'Water Fountain', shortLabel: 'Water', defaultExempt: false },
+  { id: 'Nurse', label: 'School Nurse', shortLabel: 'Nurse', defaultExempt: true },
+  { id: 'Counselor', label: 'Counselor', shortLabel: 'Counselor', defaultExempt: true },
+  { id: 'Main Office', label: 'Main Office', shortLabel: 'Office', defaultExempt: false },
+];
+
+export const CLASSROOM_ROLES = [
+  'Facilitator',
+  'Recorder',
+  'Timekeeper',
+  'Materials Manager',
+  'Presenter',
+  'Quality Checker',
+] as const;
+
+export type ClassroomRole = (typeof CLASSROOM_ROLES)[number];
+
+export interface BellScheduleSlot {
+  sectionId: string;
+  startTime: string; // HH:MM (24-hour)
+  endTime: string;   // HH:MM (24-hour)
+}
+
+export interface BellScheduleProfile {
+  id: string;
+  name: string;
+  slots: BellScheduleSlot[];
+}
+
+export interface TimerStageItem {
+  id: string;
+  title: string;
+  instructions: string;
+  durationSeconds: number;
+}
+
+export const DEFAULT_BELL_SCHEDULES: BellScheduleProfile[] = [
+  {
+    id: 'regular',
+    name: 'Regular Bell Schedule',
+    slots: [
+      { sectionId: 'sec_alg1_p2', startTime: '08:50', endTime: '09:42' },
+      { sectionId: 'sec_alg1_p4', startTime: '10:38', endTime: '11:30' },
+      { sectionId: 'sec_alg1_p8', startTime: '14:05', endTime: '14:57' },
+    ],
+  },
+  {
+    id: 'late_start',
+    name: 'Late Start / Delay',
+    slots: [
+      { sectionId: 'sec_alg1_p2', startTime: '09:50', endTime: '10:32' },
+      { sectionId: 'sec_alg1_p4', startTime: '11:20', endTime: '12:02' },
+      { sectionId: 'sec_alg1_p8', startTime: '14:15', endTime: '14:57' },
+    ],
+  },
+  {
+    id: 'pep_rally',
+    name: 'Pep Rally / Assembly',
+    slots: [
+      { sectionId: 'sec_alg1_p2', startTime: '08:40', endTime: '09:22' },
+      { sectionId: 'sec_alg1_p4', startTime: '10:12', endTime: '10:54' },
+      { sectionId: 'sec_alg1_p8', startTime: '13:18', endTime: '14:00' },
+    ],
+  },
+];
+
+export const DEFAULT_TIMER_STAGES: TimerStageItem[] = [
+  {
+    id: 'stage_1',
+    title: 'Independent Setup',
+    instructions: 'Read the prompt silently and underline known information.',
+    durationSeconds: 180,
+  },
+  {
+    id: 'stage_2',
+    title: 'Table Problem Solving',
+    instructions: 'Collaborate in your roles to solve and check every step.',
+    durationSeconds: 480,
+  },
+  {
+    id: 'stage_3',
+    title: 'Board Share-Out',
+    instructions: 'Presenter prepares to explain your table strategy clearly.',
+    durationSeconds: 120,
+  },
+];
+
 export interface AppSettings {
   theme: ThemeId;
   defaultTab: ActiveTab;
@@ -93,8 +194,21 @@ export interface AppSettings {
   defaultForceExactCount: boolean;
   defaultTimerSeconds: number;
   timerSoundEnabled: boolean;
+  warnPassAlertMinutes: number;
   longPassAlertMinutes: number;
+  overdueSoundEnabled: boolean;
   maxQuarterPasses: number;
+  autoRotateRoles: boolean;
+  avoidRecentPairs: boolean;
+  deadZoneEnabled: boolean;
+  deadZoneStartMinutes: number;
+  deadZoneEndMinutes: number;
+  exemptDestinations: PassDestination[];
+  autoSwitchPeriod: boolean;
+  autoSwitchLeadMinutes: number;
+  activeScheduleId: string;
+  bellSchedules: BellScheduleProfile[];
+  timerStages: TimerStageItem[];
 }
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -105,8 +219,21 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   defaultForceExactCount: false,
   defaultTimerSeconds: 300,
   timerSoundEnabled: true,
-  longPassAlertMinutes: 7,
+  warnPassAlertMinutes: 5,
+  longPassAlertMinutes: 8,
+  overdueSoundEnabled: true,
   maxQuarterPasses: 4,
+  autoRotateRoles: true,
+  avoidRecentPairs: true,
+  deadZoneEnabled: false,
+  deadZoneStartMinutes: 10,
+  deadZoneEndMinutes: 10,
+  exemptDestinations: ['Nurse', 'Counselor'],
+  autoSwitchPeriod: false,
+  autoSwitchLeadMinutes: 2,
+  activeScheduleId: 'regular',
+  bellSchedules: DEFAULT_BELL_SCHEDULES,
+  timerStages: DEFAULT_TIMER_STAGES,
 };
 
 export interface ColorDefinition {
@@ -128,11 +255,50 @@ export const COLOR_DEFINITIONS: ColorDefinition[] = [
   { name: 'Pink Table', color: 'bg-pink-500', border: 'border-pink-400', bg: 'bg-pink-950/30', text: 'text-pink-400' },
 ];
 
+export interface FloorPlanCoords {
+  x: number;
+  y: number;
+}
+
+export type WhiteboardEdge = 'top' | 'bottom' | 'left' | 'right';
+
+export interface FloorPlanLayout {
+  whiteboardEdge: WhiteboardEdge;
+  teacherDesk: FloorPlanCoords;
+  tables: Record<string, FloorPlanCoords>;
+}
+
+export const DEFAULT_TABLE_COORDS: FloorPlanCoords[] = [
+  { x: 18, y: 32 },
+  { x: 50, y: 32 },
+  { x: 82, y: 32 },
+  { x: 18, y: 70 },
+  { x: 50, y: 70 },
+  { x: 82, y: 70 },
+  { x: 34, y: 50 },
+  { x: 66, y: 50 },
+];
+
+export function createDefaultFloorPlan(): FloorPlanLayout {
+  const tables: Record<string, FloorPlanCoords> = {};
+  DEFAULT_TABLE_COORDS.forEach((coord, idx) => {
+    tables[`grp_${idx + 1}`] = { ...coord };
+  });
+  return {
+    whiteboardEdge: 'top',
+    teacherDesk: { x: 86, y: 14 },
+    tables,
+  };
+}
+
 export interface GroupEntry {
   id: string;
   colorIndex: number;
   name: string;
   studentIds: string[];
+  lockedStudentIds?: string[];
+  roles?: Record<string, string>;
+  points?: number;
 }
 
 export interface StudentDoc {
@@ -141,6 +307,9 @@ export interface StudentDoc {
   sectionId: string;
   name: string;
   present: boolean;
+  attendanceStatus?: AttendanceStatus;
+  badgeCode?: string;
+  activeDestination?: PassDestination | '';
   passesUsed: number;
   outTimestamp: number;
   createdBy: string;
@@ -159,6 +328,12 @@ export interface ClassSectionDoc {
   forceExactCount: boolean;
   groups: GroupEntry[];
   passQueue?: string[];
+  floorPlan?: FloorPlanLayout;
+  keepApartPairs?: string[];
+  pairTogetherPairs?: string[];
+  recentPairKeys?: string[];
+  spotlightCalledIds?: string[];
+  spotlightDeckMode?: boolean;
   createdBy: string;
   updatedBy: string;
   createdAt?: unknown;
@@ -185,6 +360,8 @@ export interface PassLogDoc {
   studentId: string;
   studentName: string;
   action: PassAction;
+  destination?: PassDestination;
+  quotaExempt?: boolean;
   passesUsedAfter: number;
   durationMinutes: number;
   durationSeconds?: number;

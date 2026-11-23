@@ -15,17 +15,26 @@ import {
 import { db, handleFirestoreError, OperationType } from './firebase';
 import {
   COLOR_DEFINITIONS,
+  createDefaultFloorPlan,
   DEFAULT_APP_SETTINGS,
+  DEFAULT_BELL_SCHEDULES,
+  DEFAULT_TIMER_STAGES,
   LIMITS,
   WORKSPACE_ID,
   type ActiveTab,
   type AppSettings,
+  type AttendanceStatus,
+  type BellScheduleProfile,
   type ClassSectionDoc,
+  type FloorPlanLayout,
   type GroupEntry,
   type PassAction,
+  type PassDestination,
   type PassLogDoc,
   type StudentDoc,
   type ThemeId,
+  type TimerStageItem,
+  type WhiteboardEdge,
   type WorkspaceDoc,
 } from '../types/classroom';
 
@@ -149,6 +158,79 @@ function clampPassCount(count: number, maxLimit: number = LIMITS.MAX_PASSES): nu
 
 const VALID_THEMES: ThemeId[] = ['gold', 'sapphire', 'emerald', 'violet', 'crimson', 'tangerine'];
 const VALID_TABS: ActiveTab[] = ['groups', 'roster', 'settings', 'passes', 'history'];
+const VALID_DESTINATIONS: PassDestination[] = [
+  'Restroom',
+  'Water',
+  'Nurse',
+  'Counselor',
+  'Main Office',
+];
+const VALID_WHITEBOARD_EDGES: WhiteboardEdge[] = ['top', 'bottom', 'left', 'right'];
+
+function clampCoord(val: unknown, fallback: number): number {
+  const num = Number(val);
+  if (!Number.isFinite(num)) return fallback;
+  return Math.max(5, Math.min(95, Math.round(num * 10) / 10));
+}
+
+export function sanitizeFloorPlan(raw?: Partial<FloorPlanLayout> | null): FloorPlanLayout {
+  const base = createDefaultFloorPlan();
+  if (!raw) return base;
+  const whiteboardEdge = VALID_WHITEBOARD_EDGES.includes(raw.whiteboardEdge as WhiteboardEdge)
+    ? (raw.whiteboardEdge as WhiteboardEdge)
+    : base.whiteboardEdge;
+  const teacherDesk = {
+    x: clampCoord(raw.teacherDesk?.x, base.teacherDesk.x),
+    y: clampCoord(raw.teacherDesk?.y, base.teacherDesk.y),
+  };
+  const tables: Record<string, { x: number; y: number }> = { ...base.tables };
+  if (raw.tables && typeof raw.tables === 'object') {
+    Object.entries(raw.tables)
+      .slice(0, 12)
+      .forEach(([key, coord]) => {
+        const cleanKey = sanitizeId(key, 'grp');
+        const fallback = base.tables[cleanKey] || { x: 50, y: 50 };
+        tables[cleanKey] = {
+          x: clampCoord(coord?.x, fallback.x),
+          y: clampCoord(coord?.y, fallback.y),
+        };
+      });
+  }
+  return { whiteboardEdge, teacherDesk, tables };
+}
+
+function sanitizeBellSchedules(raw: unknown): BellScheduleProfile[] {
+  if (!Array.isArray(raw) || raw.length === 0) return DEFAULT_BELL_SCHEDULES;
+  const cleaned = raw.slice(0, 6).map((item, idx) => {
+    const p = (item || {}) as Partial<BellScheduleProfile>;
+    const id = sanitizeId(p.id || `sched_${idx + 1}`, `sched_${idx + 1}`).slice(0, 64);
+    const name = clampText(p.name || `Schedule ${idx + 1}`, 60) || `Schedule ${idx + 1}`;
+    const slots = Array.isArray(p.slots)
+      ? p.slots.slice(0, 16).map((sl) => ({
+          sectionId: sanitizeId(sl?.sectionId || 'sec', 'sec'),
+          startTime: typeof sl?.startTime === 'string' ? sl.startTime.slice(0, 10) : '08:00',
+          endTime: typeof sl?.endTime === 'string' ? sl.endTime.slice(0, 10) : '08:50',
+        }))
+      : [];
+    return { id, name, slots };
+  });
+  return cleaned.length > 0 ? cleaned : DEFAULT_BELL_SCHEDULES;
+}
+
+function sanitizeTimerStages(raw: unknown): TimerStageItem[] {
+  if (!Array.isArray(raw) || raw.length === 0) return DEFAULT_TIMER_STAGES;
+  const cleaned = raw.slice(0, 15).map((item, idx) => {
+    const st = (item || {}) as Partial<TimerStageItem>;
+    const dur = Math.round(Number(st.durationSeconds ?? 180));
+    return {
+      id: sanitizeId(st.id || `stage_${idx + 1}`, `stage_${idx + 1}`),
+      title: clampText(st.title || `Phase ${idx + 1}`, 80) || `Phase ${idx + 1}`,
+      instructions: clampText(st.instructions || '', 240),
+      durationSeconds: Number.isFinite(dur) ? Math.max(5, Math.min(59999, dur)) : 180,
+    };
+  });
+  return cleaned.length > 0 ? cleaned : DEFAULT_TIMER_STAGES;
+}
 
 export function sanitizeWorkspaceSettings(raw?: Partial<AppSettings> | null): AppSettings {
   const s = raw || {};
@@ -161,8 +243,23 @@ export function sanitizeWorkspaceSettings(raw?: Partial<AppSettings> | null): Ap
   const quickSizeNum = Math.round(Number(s.defaultQuickSize ?? DEFAULT_APP_SETTINGS.defaultQuickSize));
   const quickCountNum = Math.round(Number(s.defaultQuickCount ?? DEFAULT_APP_SETTINGS.defaultQuickCount));
   const timerNum = Math.round(Number(s.defaultTimerSeconds ?? DEFAULT_APP_SETTINGS.defaultTimerSeconds));
+  const warnNum = Math.round(Number(s.warnPassAlertMinutes ?? DEFAULT_APP_SETTINGS.warnPassAlertMinutes));
   const alertNum = Math.round(Number(s.longPassAlertMinutes ?? DEFAULT_APP_SETTINGS.longPassAlertMinutes));
   const maxPassNum = Math.round(Number(s.maxQuarterPasses ?? DEFAULT_APP_SETTINGS.maxQuarterPasses));
+  const dzStart = Math.round(Number(s.deadZoneStartMinutes ?? DEFAULT_APP_SETTINGS.deadZoneStartMinutes));
+  const dzEnd = Math.round(Number(s.deadZoneEndMinutes ?? DEFAULT_APP_SETTINGS.deadZoneEndMinutes));
+  const leadMin = Math.round(Number(s.autoSwitchLeadMinutes ?? DEFAULT_APP_SETTINGS.autoSwitchLeadMinutes));
+
+  const exemptRaw = Array.isArray(s.exemptDestinations)
+    ? s.exemptDestinations.filter((d): d is PassDestination =>
+        VALID_DESTINATIONS.includes(d as PassDestination)
+      )
+    : DEFAULT_APP_SETTINGS.exemptDestinations;
+
+  const bellSchedules = sanitizeBellSchedules(s.bellSchedules);
+  const activeSchedMatch = bellSchedules.some((b) => b.id === s.activeScheduleId)
+    ? String(s.activeScheduleId).slice(0, 64)
+    : bellSchedules[0].id;
 
   return {
     theme,
@@ -172,20 +269,79 @@ export function sanitizeWorkspaceSettings(raw?: Partial<AppSettings> | null): Ap
     defaultForceExactCount: Boolean(s.defaultForceExactCount ?? DEFAULT_APP_SETTINGS.defaultForceExactCount),
     defaultTimerSeconds: Number.isFinite(timerNum) ? Math.max(10, Math.min(59999, timerNum)) : DEFAULT_APP_SETTINGS.defaultTimerSeconds,
     timerSoundEnabled: s.timerSoundEnabled !== undefined ? Boolean(s.timerSoundEnabled) : DEFAULT_APP_SETTINGS.timerSoundEnabled,
+    warnPassAlertMinutes: Number.isFinite(warnNum) ? Math.max(1, Math.min(30, warnNum)) : DEFAULT_APP_SETTINGS.warnPassAlertMinutes,
     longPassAlertMinutes: Number.isFinite(alertNum) ? Math.max(1, Math.min(60, alertNum)) : DEFAULT_APP_SETTINGS.longPassAlertMinutes,
+    overdueSoundEnabled: s.overdueSoundEnabled !== undefined ? Boolean(s.overdueSoundEnabled) : DEFAULT_APP_SETTINGS.overdueSoundEnabled,
     maxQuarterPasses: Number.isFinite(maxPassNum) ? Math.max(1, Math.min(LIMITS.MAX_PASSES, maxPassNum)) : DEFAULT_APP_SETTINGS.maxQuarterPasses,
+    autoRotateRoles: s.autoRotateRoles !== undefined ? Boolean(s.autoRotateRoles) : DEFAULT_APP_SETTINGS.autoRotateRoles,
+    avoidRecentPairs: s.avoidRecentPairs !== undefined ? Boolean(s.avoidRecentPairs) : DEFAULT_APP_SETTINGS.avoidRecentPairs,
+    deadZoneEnabled: Boolean(s.deadZoneEnabled ?? DEFAULT_APP_SETTINGS.deadZoneEnabled),
+    deadZoneStartMinutes: Number.isFinite(dzStart) ? Math.max(0, Math.min(30, dzStart)) : DEFAULT_APP_SETTINGS.deadZoneStartMinutes,
+    deadZoneEndMinutes: Number.isFinite(dzEnd) ? Math.max(0, Math.min(30, dzEnd)) : DEFAULT_APP_SETTINGS.deadZoneEndMinutes,
+    exemptDestinations: Array.from(new Set(exemptRaw)).slice(0, 5),
+    autoSwitchPeriod: Boolean(s.autoSwitchPeriod ?? DEFAULT_APP_SETTINGS.autoSwitchPeriod),
+    autoSwitchLeadMinutes: Number.isFinite(leadMin) ? Math.max(0, Math.min(15, leadMin)) : DEFAULT_APP_SETTINGS.autoSwitchLeadMinutes,
+    activeScheduleId: activeSchedMatch,
+    bellSchedules,
+    timerStages: sanitizeTimerStages(s.timerStages),
   };
 }
 
 function sanitizeGroups(groups: GroupEntry[]): GroupEntry[] {
-  return groups.slice(0, LIMITS.MAX_GROUPS).map((g, idx) => ({
-    id: sanitizeId(g.id, `grp_${idx + 1}`),
-    colorIndex: Math.max(0, Math.min(7, Math.round(Number(g.colorIndex) || 0))),
-    name: clampText(g.name || COLOR_DEFINITIONS[idx % COLOR_DEFINITIONS.length].name, LIMITS.GROUP_NAME_MAX),
-    studentIds: (g.studentIds || [])
+  return groups.slice(0, LIMITS.MAX_GROUPS).map((g, idx) => {
+    const cleanStudentIds = (g.studentIds || [])
       .map((sid) => sanitizeId(sid, 'st'))
-      .slice(0, LIMITS.MAX_GROUP_STUDENTS),
-  }));
+      .slice(0, LIMITS.MAX_GROUP_STUDENTS);
+    const cleanStudentSet = new Set(cleanStudentIds);
+    const cleanLocked = (g.lockedStudentIds || [])
+      .map((sid) => sanitizeId(sid, 'st'))
+      .filter((sid) => cleanStudentSet.has(sid))
+      .slice(0, LIMITS.MAX_GROUP_STUDENTS);
+
+    const cleanRoles: Record<string, string> = {};
+    if (g.roles && typeof g.roles === 'object') {
+      Object.entries(g.roles)
+        .slice(0, LIMITS.MAX_GROUP_STUDENTS)
+        .forEach(([sid, role]) => {
+          const cleanSid = sanitizeId(sid, 'st');
+          if (cleanStudentSet.has(cleanSid) && typeof role === 'string' && role.trim()) {
+            cleanRoles[cleanSid] = clampText(role, 40);
+          }
+        });
+    }
+
+    const rawPoints = Math.round(Number(g.points ?? 0));
+    const cleanPoints = Number.isFinite(rawPoints)
+      ? Math.max(-999, Math.min(999, rawPoints))
+      : 0;
+
+    return {
+      id: sanitizeId(g.id, `grp_${idx + 1}`),
+      colorIndex: Math.max(0, Math.min(7, Math.round(Number(g.colorIndex) || 0))),
+      name: clampText(
+        g.name || COLOR_DEFINITIONS[idx % COLOR_DEFINITIONS.length].name,
+        LIMITS.GROUP_NAME_MAX
+      ),
+      studentIds: cleanStudentIds,
+      lockedStudentIds: cleanLocked,
+      roles: cleanRoles,
+      points: cleanPoints,
+    };
+  });
+}
+
+function sanitizePairKeyList(list: string[], maxLen: number): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of list) {
+    if (typeof raw !== 'string') continue;
+    const trimmed = raw.trim().slice(0, 260);
+    if (!trimmed || !trimmed.includes('|') || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    out.push(trimmed);
+    if (out.length >= maxLen) break;
+  }
+  return out;
 }
 
 function sanitizePassQueue(queue: string[]): string[] {
@@ -645,16 +801,119 @@ export async function updateSectionSettings(
 export async function updateSectionGroups(
   sectionId: string,
   groups: GroupEntry[],
+  teacherEmail: string,
+  recentPairKeys?: string[]
+): Promise<void> {
+  const email = teacherEmail.trim().toLowerCase().slice(0, LIMITS.EMAIL_MAX);
+  const path = `${SECTIONS_PATH}/${sectionId}`;
+  try {
+    const payload: Record<string, unknown> = {
+      groups: sanitizeGroups(groups),
+      updatedBy: email,
+      updatedAt: serverTimestamp(),
+    };
+    if (Array.isArray(recentPairKeys)) {
+      payload.recentPairKeys = sanitizePairKeyList(recentPairKeys, LIMITS.MAX_RECENT_PAIRS);
+    }
+    await updateDoc(doc(db, SECTIONS_PATH, sectionId), payload);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
+  }
+}
+
+export async function updateSectionFloorPlan(
+  sectionId: string,
+  floorPlan: FloorPlanLayout,
   teacherEmail: string
 ): Promise<void> {
   const email = teacherEmail.trim().toLowerCase().slice(0, LIMITS.EMAIL_MAX);
   const path = `${SECTIONS_PATH}/${sectionId}`;
   try {
     await updateDoc(doc(db, SECTIONS_PATH, sectionId), {
-      groups: sanitizeGroups(groups),
+      floorPlan: sanitizeFloorPlan(floorPlan),
       updatedBy: email,
       updatedAt: serverTimestamp(),
     });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
+  }
+}
+
+export async function applyFloorPlanToAllSections(
+  sections: ClassSectionDoc[],
+  floorPlan: FloorPlanLayout,
+  teacherEmail: string
+): Promise<void> {
+  if (sections.length === 0) return;
+  const email = teacherEmail.trim().toLowerCase().slice(0, LIMITS.EMAIL_MAX);
+  const cleanPlan = sanitizeFloorPlan(floorPlan);
+  try {
+    const batch = writeBatch(db);
+    sections.forEach((sec) => {
+      batch.update(doc(db, SECTIONS_PATH, sec.id), {
+        floorPlan: cleanPlan,
+        updatedBy: email,
+        updatedAt: serverTimestamp(),
+      });
+    });
+    await batch.commit();
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, SECTIONS_PATH);
+  }
+}
+
+export async function updateSectionPairRules(
+  sectionId: string,
+  patch: {
+    keepApartPairs?: string[];
+    pairTogetherPairs?: string[];
+    recentPairKeys?: string[];
+  },
+  teacherEmail: string
+): Promise<void> {
+  const email = teacherEmail.trim().toLowerCase().slice(0, LIMITS.EMAIL_MAX);
+  const path = `${SECTIONS_PATH}/${sectionId}`;
+  const payload: Record<string, unknown> = {
+    updatedBy: email,
+    updatedAt: serverTimestamp(),
+  };
+  if (patch.keepApartPairs !== undefined) {
+    payload.keepApartPairs = sanitizePairKeyList(patch.keepApartPairs, LIMITS.MAX_PAIR_RULES);
+  }
+  if (patch.pairTogetherPairs !== undefined) {
+    payload.pairTogetherPairs = sanitizePairKeyList(patch.pairTogetherPairs, LIMITS.MAX_PAIR_RULES);
+  }
+  if (patch.recentPairKeys !== undefined) {
+    payload.recentPairKeys = sanitizePairKeyList(patch.recentPairKeys, LIMITS.MAX_RECENT_PAIRS);
+  }
+  try {
+    await updateDoc(doc(db, SECTIONS_PATH, sectionId), payload);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
+  }
+}
+
+export async function updateSectionSpotlightDeck(
+  sectionId: string,
+  patch: { spotlightCalledIds?: string[]; spotlightDeckMode?: boolean },
+  teacherEmail: string
+): Promise<void> {
+  const email = teacherEmail.trim().toLowerCase().slice(0, LIMITS.EMAIL_MAX);
+  const path = `${SECTIONS_PATH}/${sectionId}`;
+  const payload: Record<string, unknown> = {
+    updatedBy: email,
+    updatedAt: serverTimestamp(),
+  };
+  if (patch.spotlightCalledIds !== undefined) {
+    payload.spotlightCalledIds = patch.spotlightCalledIds
+      .map((id) => sanitizeId(id, 'st'))
+      .slice(0, 150);
+  }
+  if (patch.spotlightDeckMode !== undefined) {
+    payload.spotlightDeckMode = Boolean(patch.spotlightDeckMode);
+  }
+  try {
+    await updateDoc(doc(db, SECTIONS_PATH, sectionId), payload);
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, path);
   }
@@ -723,6 +982,7 @@ export async function markStudentAbsentAndRemoveFromGroups(
     const batch = writeBatch(db);
     batch.update(doc(db, `${SECTIONS_PATH}/${sectionId}/students`, studentId), {
       present: false,
+      attendanceStatus: 'absent',
       updatedBy: email,
       updatedAt: serverTimestamp(),
     });
@@ -740,13 +1000,15 @@ export async function markStudentAbsentAndRemoveFromGroups(
 export async function addStudent(
   sectionId: string,
   name: string,
-  teacherEmail: string
+  teacherEmail: string,
+  badgeCode: string = ''
 ): Promise<void> {
   const cleanName = clampText(name, LIMITS.STUDENT_NAME_MAX);
   if (!cleanName) return;
   const email = teacherEmail.trim().toLowerCase().slice(0, LIMITS.EMAIL_MAX);
   const studentId = generateId('st');
   const path = `${SECTIONS_PATH}/${sectionId}/students/${studentId}`;
+  const cleanBadge = clampText(badgeCode, LIMITS.BADGE_CODE_MAX);
 
   try {
     const batch = writeBatch(db);
@@ -756,6 +1018,8 @@ export async function addStudent(
       sectionId,
       name: cleanName,
       present: true,
+      attendanceStatus: 'present',
+      ...(cleanBadge ? { badgeCode: cleanBadge } : {}),
       passesUsed: 0,
       outTimestamp: 0,
       createdBy: email,
@@ -771,30 +1035,38 @@ export async function addStudent(
 
 export async function bulkAddStudents(
   sectionId: string,
-  names: string[],
+  entries: Array<string | { name: string; badgeCode?: string }>,
   teacherEmail: string
 ): Promise<number> {
-  const cleanNames = names
-    .map((n) => clampText(n, LIMITS.STUDENT_NAME_MAX))
-    .filter((n) => n.length > 0);
-  if (cleanNames.length === 0) return 0;
+  const cleanEntries = entries
+    .map((entry) =>
+      typeof entry === 'string'
+        ? { name: clampText(entry, LIMITS.STUDENT_NAME_MAX), badgeCode: '' }
+        : {
+            name: clampText(entry.name, LIMITS.STUDENT_NAME_MAX),
+            badgeCode: clampText(entry.badgeCode || '', LIMITS.BADGE_CODE_MAX),
+          }
+    )
+    .filter((e) => e.name.length > 0);
+  if (cleanEntries.length === 0) return 0;
 
   const email = teacherEmail.trim().toLowerCase().slice(0, LIMITS.EMAIL_MAX);
   const path = `${SECTIONS_PATH}/${sectionId}/students`;
 
   try {
-    // Firestore batch supports up to 500 writes per batch
-    for (let i = 0; i < cleanNames.length; i += 400) {
-      const chunk = cleanNames.slice(i, i + 400);
+    for (let i = 0; i < cleanEntries.length; i += 400) {
+      const chunk = cleanEntries.slice(i, i + 400);
       const batch = writeBatch(db);
-      chunk.forEach((cleanName, idx) => {
+      chunk.forEach((entry, idx) => {
         const studentId = `st_${Date.now()}_${i + idx}_${Math.random().toString(36).slice(2, 6)}`;
         batch.set(doc(db, path, studentId), {
           id: studentId,
           workspaceId: WORKSPACE_ID,
           sectionId,
-          name: cleanName,
+          name: entry.name,
           present: true,
+          attendanceStatus: 'present',
+          ...(entry.badgeCode ? { badgeCode: entry.badgeCode } : {}),
           passesUsed: 0,
           outTimestamp: 0,
           createdBy: email,
@@ -805,7 +1077,7 @@ export async function bulkAddStudents(
       });
       await batch.commit();
     }
-    return cleanNames.length;
+    return cleanEntries.length;
   } catch (error) {
     handleFirestoreError(error, OperationType.CREATE, path);
   }
@@ -815,13 +1087,35 @@ export async function toggleStudentAttendance(
   sectionId: string,
   studentId: string,
   present: boolean,
+  teacherEmail: string,
+  attendanceStatus?: AttendanceStatus
+): Promise<void> {
+  const email = teacherEmail.trim().toLowerCase().slice(0, LIMITS.EMAIL_MAX);
+  const path = `${SECTIONS_PATH}/${sectionId}/students/${studentId}`;
+  const status: AttendanceStatus = attendanceStatus || (present ? 'present' : 'absent');
+  try {
+    await updateDoc(doc(db, `${SECTIONS_PATH}/${sectionId}/students`, studentId), {
+      present: Boolean(present),
+      attendanceStatus: status,
+      updatedBy: email,
+      updatedAt: serverTimestamp(),
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
+  }
+}
+
+export async function updateStudentBadgeCode(
+  sectionId: string,
+  studentId: string,
+  badgeCode: string,
   teacherEmail: string
 ): Promise<void> {
   const email = teacherEmail.trim().toLowerCase().slice(0, LIMITS.EMAIL_MAX);
   const path = `${SECTIONS_PATH}/${sectionId}/students/${studentId}`;
   try {
     await updateDoc(doc(db, `${SECTIONS_PATH}/${sectionId}/students`, studentId), {
-      present: Boolean(present),
+      badgeCode: clampText(badgeCode, LIMITS.BADGE_CODE_MAX),
       updatedBy: email,
       updatedAt: serverTimestamp(),
     });
@@ -839,6 +1133,7 @@ export async function markAllAttendance(
   if (students.length === 0) return;
   const email = teacherEmail.trim().toLowerCase().slice(0, LIMITS.EMAIL_MAX);
   const path = `${SECTIONS_PATH}/${sectionId}/students`;
+  const status: AttendanceStatus = present ? 'present' : 'absent';
   try {
     for (let i = 0; i < students.length; i += 400) {
       const chunk = students.slice(i, i + 400);
@@ -846,6 +1141,7 @@ export async function markAllAttendance(
       chunk.forEach((st) => {
         batch.update(doc(db, path, st.id), {
           present: Boolean(present),
+          attendanceStatus: status,
           updatedBy: email,
           updatedAt: serverTimestamp(),
         });
@@ -904,6 +1200,8 @@ function buildPassLogPayload(params: {
   studentId: string;
   studentName: string;
   action: PassAction;
+  destination?: PassDestination;
+  quotaExempt?: boolean;
   passesUsedAfter: number;
   durationMinutes: number;
   durationSeconds: number;
@@ -919,6 +1217,8 @@ function buildPassLogPayload(params: {
     studentId: sanitizeId(params.studentId, 'st'),
     studentName: clampText(params.studentName || 'Student', LIMITS.STUDENT_NAME_MAX),
     action: params.action,
+    ...(params.destination ? { destination: params.destination } : {}),
+    ...(typeof params.quotaExempt === 'boolean' ? { quotaExempt: params.quotaExempt } : {}),
     passesUsedAfter: clampPassCount(params.passesUsedAfter),
     durationMinutes: Math.max(
       0,
@@ -941,21 +1241,29 @@ export async function issueStudentPass(
   student: StudentDoc,
   teacherEmail: string,
   currentPassQueue: string[] = [],
-  maxPasses: number = LIMITS.DEFAULT_MAX_PASSES
+  maxPasses: number = LIMITS.DEFAULT_MAX_PASSES,
+  destination: PassDestination = 'Restroom',
+  quotaExempt: boolean = false
 ): Promise<void> {
   const effectiveMax = Math.max(1, Math.min(LIMITS.MAX_PASSES, Math.round(maxPasses)));
-  if (student.passesUsed >= effectiveMax) return;
+  if (!quotaExempt && student.passesUsed >= effectiveMax) return;
   const email = teacherEmail.trim().toLowerCase().slice(0, LIMITS.EMAIL_MAX);
-  const nextCount = clampPassCount(student.passesUsed + 1, effectiveMax);
+  const nextCount = quotaExempt
+    ? clampPassCount(student.passesUsed, effectiveMax)
+    : clampPassCount(student.passesUsed + 1, effectiveMax);
   const nowMs = Date.now();
   const logId = generateId('log');
   const path = `${SECTIONS_PATH}/${sectionId}/students/${student.id}`;
+  const cleanDest: PassDestination = VALID_DESTINATIONS.includes(destination)
+    ? destination
+    : 'Restroom';
 
   try {
     const batch = writeBatch(db);
     batch.update(doc(db, `${SECTIONS_PATH}/${sectionId}/students`, student.id), {
       passesUsed: nextCount,
       outTimestamp: nowMs,
+      activeDestination: cleanDest,
       updatedBy: email,
       updatedAt: serverTimestamp(),
     });
@@ -975,6 +1283,8 @@ export async function issueStudentPass(
         studentId: student.id,
         studentName: student.name,
         action: 'issued',
+        destination: cleanDest,
+        quotaExempt,
         passesUsedAfter: nextCount,
         durationMinutes: 0,
         durationSeconds: 0,
@@ -993,7 +1303,8 @@ export async function returnStudentPass(
   sectionId: string,
   sectionName: string,
   student: StudentDoc,
-  teacherEmail: string
+  teacherEmail: string,
+  quotaExempt: boolean = false
 ): Promise<void> {
   const email = teacherEmail.trim().toLowerCase().slice(0, LIMITS.EMAIL_MAX);
   const nowMs = Date.now();
@@ -1003,12 +1314,18 @@ export async function returnStudentPass(
   const elapsedMins = Math.round(elapsedSeconds / 60);
   const logId = generateId('log');
   const path = `${SECTIONS_PATH}/${sectionId}/students/${student.id}`;
+  const activeDest: PassDestination = VALID_DESTINATIONS.includes(
+    student.activeDestination as PassDestination
+  )
+    ? (student.activeDestination as PassDestination)
+    : 'Restroom';
 
   try {
     const batch = writeBatch(db);
     batch.update(doc(db, `${SECTIONS_PATH}/${sectionId}/students`, student.id), {
       passesUsed: clampPassCount(student.passesUsed),
       outTimestamp: 0,
+      activeDestination: '',
       updatedBy: email,
       updatedAt: serverTimestamp(),
     });
@@ -1021,6 +1338,8 @@ export async function returnStudentPass(
         studentId: student.id,
         studentName: student.name,
         action: 'returned',
+        destination: activeDest,
+        quotaExempt,
         passesUsedAfter: student.passesUsed,
         durationMinutes: elapsedMins,
         durationSeconds: elapsedSeconds,
@@ -1086,6 +1405,8 @@ export async function updatePassLogEntry(
   log: PassLogDoc,
   patch: {
     action: PassAction;
+    destination?: PassDestination;
+    quotaExempt?: boolean;
     passesUsedAfter: number;
     takenAt: number;
     returnedAt: number;
@@ -1111,7 +1432,7 @@ export async function updatePassLogEntry(
   );
   try {
     const batch = writeBatch(db);
-    batch.update(doc(db, PASS_LOGS_PATH, log.id), {
+    const updatePayload: Record<string, unknown> = {
       action: patch.action,
       passesUsedAfter: clampPassCount(patch.passesUsedAfter),
       durationMinutes: cleanMinutes,
@@ -1119,7 +1440,14 @@ export async function updatePassLogEntry(
       takenAt: Math.max(0, Math.round(patch.takenAt)),
       returnedAt: Math.max(0, Math.round(patch.returnedAt)),
       actorEmail: email,
-    });
+    };
+    if (patch.destination && VALID_DESTINATIONS.includes(patch.destination)) {
+      updatePayload.destination = patch.destination;
+    }
+    if (typeof patch.quotaExempt === 'boolean') {
+      updatePayload.quotaExempt = patch.quotaExempt;
+    }
+    batch.update(doc(db, PASS_LOGS_PATH, log.id), updatePayload);
     if (alsoUpdateStudent) {
       batch.update(
         doc(

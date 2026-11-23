@@ -1,6 +1,7 @@
 import React from 'react';
 import {
   Cloud,
+  Keyboard,
   LogOut,
   Monitor,
   PictureInPicture2,
@@ -17,12 +18,14 @@ interface HeaderBarProps {
   syncing: boolean;
   activeTab: ActiveTab;
   currentlyOutCount: number;
+  currentBellSlotLabel?: string | null;
   onSwitchSection: (sectionId: string) => void;
   onOpenAddSection: () => void;
   onOpenProjector: () => void;
   onOpenSpotlight: () => void;
   onOpenPassPopout: () => void;
   onOpenSettings: () => void;
+  onOpenShortcuts: () => void;
   onSignOut: () => void;
   onSwitchTab: (tab: ActiveTab) => void;
 }
@@ -34,12 +37,14 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
   syncing,
   activeTab,
   currentlyOutCount,
+  currentBellSlotLabel,
   onSwitchSection,
   onOpenAddSection,
   onOpenProjector,
   onOpenSpotlight,
   onOpenPassPopout,
   onOpenSettings,
+  onOpenShortcuts,
   onSignOut,
   onSwitchTab,
 }) => {
@@ -65,7 +70,12 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                 Tiger GroupCraft
               </h1>
               <p className="text-xs text-slate-400 font-medium mt-1 whitespace-nowrap">
-                CHUH Heights High · Live Pass & Station Sync
+                CHUH Heights High · Live Pass &amp; Station Sync
+                {currentBellSlotLabel && (
+                  <span className="ml-2 text-amber-300 font-mono-tabular">
+                    · Bell {currentBellSlotLabel}
+                  </span>
+                )}
               </p>
             </div>
           </div>
@@ -136,10 +146,18 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
             <button
               onClick={onOpenPassPopout}
               className="px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-emerald-300 font-bold text-xs sm:text-sm rounded-xl flex items-center gap-1.5 transition-all whitespace-nowrap shrink-0 cursor-pointer"
-              title="Pop out Restroom Status & Line window for another monitor"
+              title="Pop out Restroom Status, Queue & Door Kiosk window"
             >
               <PictureInPicture2 className="w-4 h-4" />
               Pass Window
+            </button>
+            <button
+              onClick={onOpenShortcuts}
+              className="p-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-white rounded-xl flex items-center justify-center transition-all shrink-0 cursor-pointer"
+              title="Keyboard & Presenter Clicker Shortcuts (?)"
+              aria-label="Open keyboard shortcuts"
+            >
+              <Keyboard className="w-4 h-4" />
             </button>
             <button
               onClick={onOpenSettings}

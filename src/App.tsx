@@ -12,6 +12,7 @@ import {
   addStudent,
   adjustStudentPassCount,
   applyDefaultGroupingToAllSections,
+  applyFloorPlanToAllSections,
   bulkAddStudents,
   clearPassLogs,
   createSection,
@@ -34,19 +35,31 @@ import {
   subscribeWorkspace,
   toggleStudentAttendance,
   updatePassLogEntry,
+  updateSectionFloorPlan,
   updateSectionGroups,
+  updateSectionPairRules,
   updateSectionPassQueue,
   updateSectionSettings,
+  updateSectionSpotlightDeck,
+  updateStudentBadgeCode,
   updateWorkspaceSettings,
   type LegacyOrCloudBackupSection,
 } from './lib/classroomService';
-import { generateColorGroups } from './lib/grouping';
+import {
+  dropStudentIntoOpenSeat,
+  generateColorGroups,
+  rotateGroupRoles,
+} from './lib/grouping';
+import { evaluateBellSchedule } from './lib/bellSchedule';
 import {
   WORKSPACE_ID,
   type ActiveTab,
   type AppSettings,
+  type AttendanceStatus,
   type ClassSectionDoc,
+  type FloorPlanLayout,
   type PassAction,
+  type PassDestination,
   type PassLogDoc,
   type StudentDoc,
   type ThemeId,
@@ -62,6 +75,7 @@ import { HallPassesTab } from './components/HallPassesTab';
 import { PassHistoryTab } from './components/PassHistoryTab';
 import { PassMonitorBoard } from './components/PassMonitorBoard';
 import {
+  playProjectorChime,
   ProjectorOverlay,
   type SpotlightWinnerInfo,
 } from './components/ProjectorOverlay';
@@ -80,6 +94,7 @@ import {
   ClearHistoryModal,
   EditPassLogModal,
 } from './components/PassHistoryModals';
+import { ShortcutsModal } from './components/ShortcutsModal';
 
 interface DocumentPictureInPictureApi {
   window: Window | null;
@@ -114,8 +129,11 @@ export default function App() {
 
   const [projectorOpen, setProjectorOpen] = useState(false);
   const [spotlightTrigger, setSpotlightTrigger] = useState(0);
+  const [timerToggleTrigger, setTimerToggleTrigger] = useState(0);
+  const [fistToFiveTrigger, setFistToFiveTrigger] = useState(0);
   const [projectorRulesOpen, setProjectorRulesOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [addSectionOpen, setAddSectionOpen] = useState(false);
   const [resetModalOpen, setResetModalOpen] = useState(false);
   const [clearHistoryOpen, setClearHistoryOpen] = useState(false);
@@ -129,6 +147,10 @@ export default function App() {
   } | null>(null);
   const [spotlightWinner, setSpotlightWinner] = useState<SpotlightWinnerInfo | null>(null);
   const [historyTarget, setHistoryTarget] = useState<StudentHistoryTarget | null>(null);
+
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  const alertedOverdueKeysRef = useRef<Set<string>>(new Set());
+  const lastAutoSwitchedTargetRef = useRef<string | null>(null);
 
   const [previewTheme, setPreviewTheme] = useState<ThemeId | null>(null);
   const [cachedTheme] = useState<ThemeId>(() => {
@@ -296,6 +318,93 @@ export default function App() {
     }
   }, [workspaceReady, appSettings.defaultTab]);
 
+  // Live 1s clock for Bell Schedule Dead Zones, Auto-Switching, and Overdue Pass Audio Alerts
+  useEffect(() => {
+    if (!workspaceReady) return;
+    const id = window.setInterval(() => setNowMs(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [workspaceReady]);
+
+  const bellEvaluation = useMemo(
+    () => evaluateBellSchedule(nowMs, activeSection?.id, sections, appSettings),
+    [nowMs, activeSection?.id, sections, appSettings]
+  );
+
+  // Overdue pass subtle audio chime alert
+  useEffect(() => {
+    if (!workspaceReady || !appSettings.overdueSoundEnabled) return;
+    const thresholdSec = Math.max(1, appSettings.longPassAlertMinutes) * 60;
+    for (const st of students) {
+      if (st.outTimestamp <= 0) continue;
+      const elapsedSec = Math.floor((nowMs - st.outTimestamp) / 1000);
+      if (elapsedSec >= thresholdSec) {
+        const key = `${st.id}_${st.outTimestamp}`;
+        if (!alertedOverdueKeysRef.current.has(key)) {
+          alertedOverdueKeysRef.current.add(key);
+          playProjectorChime();
+          showToast(
+            `Overdue pass: ${st.name} (${appSettings.longPassAlertMinutes}+ min)`,
+            'error'
+          );
+        }
+      }
+    }
+  }, [workspaceReady, appSettings.overdueSoundEnabled, appSettings.longPassAlertMinutes, students, nowMs, showToast]);
+
+  // Automatic bell-schedule period switching
+  useEffect(() => {
+    if (!workspaceReady || !appSettings.autoSwitchPeriod) {
+      lastAutoSwitchedTargetRef.current = null;
+      return;
+    }
+    const targetId = bellEvaluation.nextAutoSwitchSectionId;
+    if (!targetId) {
+      lastAutoSwitchedTargetRef.current = null;
+      return;
+    }
+    if (lastAutoSwitchedTargetRef.current === targetId) return;
+    lastAutoSwitchedTargetRef.current = targetId;
+
+    if (!activeSection || targetId === activeSection.id) return;
+    const targetSection = sections.find((s) => s.id === targetId);
+    if (!targetSection) return;
+
+    const outgoingSection = activeSection;
+    const lingeringOut = students.filter((s) => s.outTimestamp > 0);
+
+    void (async () => {
+      try {
+        for (const st of lingeringOut) {
+          const dest = (st.activeDestination as PassDestination) || 'Restroom';
+          const exempt = appSettings.exemptDestinations.includes(dest);
+          await returnStudentPass(
+            outgoingSection.id,
+            outgoingSection.name,
+            st,
+            teacherEmail,
+            exempt
+          );
+        }
+        await setActiveSection(targetId, teacherEmail);
+        setSpotlightWinner(null);
+        showToast(`Auto-switched to ${targetSection.name} for upcoming bell`);
+      } catch (err) {
+        const errorObj = err instanceof Error ? err : new Error(String(err));
+        showToast(errorObj.message, 'error');
+      }
+    })();
+  }, [
+    workspaceReady,
+    appSettings.autoSwitchPeriod,
+    appSettings.exemptDestinations,
+    bellEvaluation.nextAutoSwitchSectionId,
+    activeSection,
+    sections,
+    students,
+    teacherEmail,
+    showToast,
+  ]);
+
   const withSync = async (fn: () => Promise<void>) => {
     setSyncing(true);
     try {
@@ -308,6 +417,104 @@ export default function App() {
       setSyncing(false);
     }
   };
+
+  // Handlers defined before early returns aren't strictly needed except for keyboard shortcut ref
+  const shortcutHandlersRef = useRef<{
+    openSpotlight: () => void;
+    generateGroups: () => void;
+    rotateRoles: () => void;
+  }>({
+    openSpotlight: () => {},
+    generateGroups: () => {},
+    rotateRoles: () => {},
+  });
+
+  // Global keyboard & presenter clicker shortcuts
+  useEffect(() => {
+    if (!workspaceReady || isPassBoardMode) return;
+    const anyBlockingModal =
+      settingsOpen ||
+      addSectionOpen ||
+      resetModalOpen ||
+      clearHistoryOpen ||
+      Boolean(editingLog) ||
+      Boolean(historyTarget) ||
+      Boolean(quickMoveTarget) ||
+      projectorRulesOpen ||
+      passBoardModalOpen;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName || '';
+      if (
+        tag === 'INPUT' ||
+        tag === 'TEXTAREA' ||
+        tag === 'SELECT' ||
+        target?.isContentEditable
+      ) {
+        return;
+      }
+
+      if (anyBlockingModal) return;
+
+      if (shortcutsOpen) {
+        if (e.key === '?' || e.key === 'Escape') {
+          e.preventDefault();
+          setShortcutsOpen(false);
+        }
+        return;
+      }
+
+      if (e.key === '?') {
+        e.preventDefault();
+        setShortcutsOpen(true);
+        return;
+      }
+
+      if (e.code === 'Space' || e.key === ' ') {
+        e.preventDefault();
+        shortcutHandlersRef.current.openSpotlight();
+        return;
+      }
+
+      const lower = e.key.toLowerCase();
+      if (lower === 't') {
+        e.preventDefault();
+        setProjectorOpen(true);
+        setTimerToggleTrigger((n) => n + 1);
+      } else if (lower === 'g') {
+        e.preventDefault();
+        shortcutHandlersRef.current.generateGroups();
+      } else if (lower === 'r') {
+        e.preventDefault();
+        shortcutHandlersRef.current.rotateRoles();
+      } else if (lower === 'p') {
+        e.preventDefault();
+        setProjectorOpen((v) => !v);
+      } else if (lower === 'f') {
+        e.preventDefault();
+        setProjectorOpen(true);
+        setFistToFiveTrigger((n) => n + 1);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [
+    workspaceReady,
+    isPassBoardMode,
+    shortcutsOpen,
+    settingsOpen,
+    addSectionOpen,
+    resetModalOpen,
+    clearHistoryOpen,
+    editingLog,
+    historyTarget,
+    quickMoveTarget,
+    projectorRulesOpen,
+    passBoardModalOpen,
+  ]);
 
   if (!authReady || !user || !isAuthorized) {
     return <AuthGate authReady={authReady} user={user} isAuthorized={isAuthorized} />;
@@ -353,6 +560,7 @@ export default function App() {
     const target = sections.find((s) => s.id === secId);
     void withSync(async () => {
       await setActiveSection(secId, teacherEmail);
+      setSpotlightWinner(null);
       if (target) showToast(`Switched to ${target.name}`);
     });
   };
@@ -445,10 +653,129 @@ export default function App() {
       showToast('No students marked present in roster!', 'error');
       return;
     }
-    const nextGroups = generateColorGroups(students, activeSection);
+    const { groups: nextGroups, nextRecentPairKeys } = generateColorGroups(
+      students,
+      activeSection,
+      {
+        assignRoles: appSettings.autoRotateRoles,
+        avoidRecentPairs: appSettings.avoidRecentPairs,
+      }
+    );
+    void withSync(async () => {
+      await updateSectionGroups(
+        activeSection.id,
+        nextGroups,
+        teacherEmail,
+        nextRecentPairKeys
+      );
+      showToast('Shuffled color groups!');
+    });
+  };
+
+  const handleRotateRoles = () => {
+    if (!activeSection || !activeSection.groups || activeSection.groups.length === 0) {
+      showToast('Generate groups first before rotating roles!', 'error');
+      return;
+    }
+    const nextGroups = rotateGroupRoles(activeSection.groups);
     void withSync(async () => {
       await updateSectionGroups(activeSection.id, nextGroups, teacherEmail);
-      showToast('Shuffled color groups!');
+      showToast('Rotated classroom roles!');
+    });
+  };
+
+  const handleToggleLockStudent = (groupId: string, studentId: string) => {
+    if (!activeSection) return;
+    const nextGroups = activeSection.groups.map((g) => {
+      if (g.id !== groupId) return g;
+      const locked = g.lockedStudentIds || [];
+      const nextLocked = locked.includes(studentId)
+        ? locked.filter((id) => id !== studentId)
+        : [...locked, studentId];
+      return { ...g, lockedStudentIds: nextLocked };
+    });
+    void withSync(async () => {
+      await updateSectionGroups(activeSection.id, nextGroups, teacherEmail);
+    });
+  };
+
+  const handleAdjustGroupPoints = (groupId: string, delta: number) => {
+    if (!activeSection) return;
+    const nextGroups = activeSection.groups.map((g) =>
+      g.id === groupId
+        ? { ...g, points: Math.max(-999, Math.min(999, (g.points || 0) + delta)) }
+        : g
+    );
+    void withSync(async () => {
+      await updateSectionGroups(activeSection.id, nextGroups, teacherEmail);
+    });
+  };
+
+  const handleResetAllGroupPoints = () => {
+    if (!activeSection || activeSection.groups.length === 0) return;
+    const nextGroups = activeSection.groups.map((g) => ({ ...g, points: 0 }));
+    void withSync(async () => {
+      await updateSectionGroups(activeSection.id, nextGroups, teacherEmail);
+      showToast('Reset all table points to 0');
+    });
+  };
+
+  const handleSaveFloorPlan = async (layout: FloorPlanLayout) => {
+    if (!activeSection) return;
+    await withSync(async () => {
+      await updateSectionFloorPlan(activeSection.id, layout, teacherEmail);
+      showToast('Saved 2D classroom floor plan');
+    });
+  };
+
+  const handleApplyFloorPlanToAll = async (layout: FloorPlanLayout) => {
+    await withSync(async () => {
+      await applyFloorPlanToAllSections(sections, layout, teacherEmail);
+      showToast(`Applied room map to all ${sections.length} periods!`);
+    });
+  };
+
+  const handleUpdatePairRules = async (patch: {
+    keepApartPairs?: string[];
+    pairTogetherPairs?: string[];
+    recentPairKeys?: string[];
+  }) => {
+    if (!activeSection) return;
+    await withSync(async () => {
+      await updateSectionPairRules(activeSection.id, patch, teacherEmail);
+      if (patch.recentPairKeys && patch.recentPairKeys.length === 0) {
+        showToast('Cleared recent pairing memory');
+      }
+    });
+  };
+
+  const handleToggleAutoRotateRoles = (enabled: boolean) => {
+    void withSync(async () => {
+      await updateWorkspaceSettings(
+        { ...appSettings, autoRotateRoles: enabled },
+        teacherEmail
+      );
+      showToast(enabled ? 'Auto-assign roles enabled' : 'Auto-assign roles disabled');
+    });
+  };
+
+  const handleToggleAvoidRecentPairs = (enabled: boolean) => {
+    void withSync(async () => {
+      await updateWorkspaceSettings(
+        { ...appSettings, avoidRecentPairs: enabled },
+        teacherEmail
+      );
+      showToast(enabled ? 'Pairing memory enabled' : 'Pairing memory disabled');
+    });
+  };
+
+  const handleUpdateSpotlightDeck = async (patch: {
+    spotlightCalledIds?: string[];
+    spotlightDeckMode?: boolean;
+  }) => {
+    if (!activeSection) return;
+    await withSync(async () => {
+      await updateSectionSpotlightDeck(activeSection.id, patch, teacherEmail);
     });
   };
 
@@ -456,7 +783,11 @@ export default function App() {
     if (!activeSection || fromGroupId === toGroupId) return;
     const nextGroups = activeSection.groups.map((g) => {
       if (g.id === fromGroupId) {
-        return { ...g, studentIds: g.studentIds.filter((id) => id !== studentId) };
+        return {
+          ...g,
+          studentIds: g.studentIds.filter((id) => id !== studentId),
+          lockedStudentIds: (g.lockedStudentIds || []).filter((id) => id !== studentId),
+        };
       }
       if (g.id === toGroupId) {
         return {
@@ -474,33 +805,73 @@ export default function App() {
   const handleRemoveStudentFromGroup = (groupId: string, studentId: string) => {
     if (!activeSection) return;
     const nextGroups = activeSection.groups.map((g) =>
-      g.id === groupId ? { ...g, studentIds: g.studentIds.filter((id) => id !== studentId) } : g
+      g.id === groupId
+        ? {
+            ...g,
+            studentIds: g.studentIds.filter((id) => id !== studentId),
+            lockedStudentIds: (g.lockedStudentIds || []).filter((id) => id !== studentId),
+          }
+        : g
     );
     void withSync(async () => {
       await updateSectionGroups(activeSection.id, nextGroups, teacherEmail);
     });
   };
 
-  const handleAddStudent = async (name: string) => {
+  const handleAddStudent = async (name: string, badgeCode: string = '') => {
     if (!activeSection) return;
     await withSync(async () => {
-      await addStudent(activeSection.id, name, teacherEmail);
+      await addStudent(activeSection.id, name, teacherEmail, badgeCode);
       showToast(`Added ${name} to roster`);
     });
   };
 
-  const handleBulkImport = async (names: string[]) => {
+  const handleBulkImport = async (entries: Array<{ name: string; badgeCode?: string }>) => {
     if (!activeSection) return;
     await withSync(async () => {
-      const added = await bulkAddStudents(activeSection.id, names, teacherEmail);
+      const added = await bulkAddStudents(activeSection.id, entries, teacherEmail);
       showToast(`Imported ${added} students`);
     });
   };
 
-  const handleToggleAttendance = async (studentId: string, present: boolean) => {
+  const handleSetAttendanceStatus = async (studentId: string, status: AttendanceStatus) => {
     if (!activeSection) return;
     await withSync(async () => {
-      await toggleStudentAttendance(activeSection.id, studentId, present, teacherEmail);
+      await toggleStudentAttendance(
+        activeSection.id,
+        studentId,
+        status !== 'absent',
+        teacherEmail,
+        status
+      );
+    });
+  };
+
+  const handleDropTardyIntoSeat = async (studentId: string) => {
+    if (!activeSection) return;
+    const target = students.find((s) => s.id === studentId);
+    if (!target) return;
+    if (!activeSection.groups || activeSection.groups.length === 0) {
+      showToast('Generate color groups first before seating a tardy student!', 'error');
+      return;
+    }
+    const nextGroups = dropStudentIntoOpenSeat(
+      studentId,
+      activeSection.groups,
+      activeSection.keepApartPairs || []
+    );
+    await withSync(async () => {
+      await toggleStudentAttendance(activeSection.id, studentId, true, teacherEmail, 'tardy');
+      await updateSectionGroups(activeSection.id, nextGroups, teacherEmail);
+      showToast(`Seated ${target.name} in an open table seat`);
+    });
+  };
+
+  const handleUpdateBadgeCode = async (studentId: string, badgeCode: string) => {
+    if (!activeSection) return;
+    await withSync(async () => {
+      await updateStudentBadgeCode(activeSection.id, studentId, badgeCode, teacherEmail);
+      showToast('Updated student badge ID');
     });
   };
 
@@ -527,7 +898,10 @@ export default function App() {
     });
   };
 
-  const handleIssuePass = async (student: StudentDoc) => {
+  const handleIssuePass = async (
+    student: StudentDoc,
+    destination: PassDestination = 'Restroom'
+  ) => {
     if (!activeSection) return;
     const maxPasses = appSettings.maxQuarterPasses;
     const activeOut = students.find((s) => s.outTimestamp > 0);
@@ -538,7 +912,8 @@ export default function App() {
       );
       return;
     }
-    if (student.passesUsed >= maxPasses) {
+    const quotaExempt = appSettings.exemptDestinations.includes(destination);
+    if (!quotaExempt && student.passesUsed >= maxPasses) {
       showToast(`${student.name} has 0/${maxPasses} passes remaining!`, 'error');
       return;
     }
@@ -549,17 +924,31 @@ export default function App() {
         student,
         teacherEmail,
         activeSection.passQueue || [],
-        maxPasses
+        maxPasses,
+        destination,
+        quotaExempt
       );
       const remainingAfter = Math.max(0, maxPasses - (student.passesUsed + 1));
-      showToast(`Issued pass to ${student.name} (${remainingAfter}/${maxPasses} left)`);
+      showToast(
+        quotaExempt
+          ? `Issued ${destination} pass to ${student.name} (Quota-Exempt)`
+          : `Issued ${destination} pass to ${student.name} (${remainingAfter}/${maxPasses} left)`
+      );
     });
   };
 
   const handleReturnStudent = async (student: StudentDoc) => {
     if (!activeSection) return;
+    const activeDest = (student.activeDestination as PassDestination) || 'Restroom';
+    const quotaExempt = appSettings.exemptDestinations.includes(activeDest);
     await withSync(async () => {
-      await returnStudentPass(activeSection.id, activeSection.name, student, teacherEmail);
+      await returnStudentPass(
+        activeSection.id,
+        activeSection.name,
+        student,
+        teacherEmail,
+        quotaExempt
+      );
       showToast(`${student.name} returned to class`);
     });
   };
@@ -632,6 +1021,13 @@ export default function App() {
     setSpotlightTrigger((n) => n + 1);
   };
 
+  // Update ref for keyboard shortcuts
+  shortcutHandlersRef.current = {
+    openSpotlight: handleOpenSpotlight,
+    generateGroups: handleGenerateGroups,
+    rotateRoles: handleRotateRoles,
+  };
+
   const handleOpenPassPopout = async () => {
     if (pipWindowRef.current && !pipWindowRef.current.closed) {
       pipWindowRef.current.focus();
@@ -643,9 +1039,9 @@ export default function App() {
 
     if (pipApi && typeof pipApi.requestWindow === 'function') {
       try {
-        const pipWin = await pipApi.requestWindow({ width: 540, height: 700 });
+        const pipWin = await pipApi.requestWindow({ width: 560, height: 740 });
         pipWindowRef.current = pipWin;
-        pipWin.document.title = 'Restroom Line — Tiger GroupCraft';
+        pipWin.document.title = 'Restroom Kiosk — Tiger GroupCraft';
         pipWin.document.documentElement.className = document.documentElement.className;
         pipWin.document.documentElement.dataset.theme = effectiveTheme;
         pipWin.document.body.className = 'bg-slate-950 text-slate-100 antialiased m-0 p-0';
@@ -736,7 +1132,7 @@ export default function App() {
   const handleRestorePresentStudent = async (student: StudentDoc) => {
     if (!activeSection) return;
     await withSync(async () => {
-      await toggleStudentAttendance(activeSection.id, student.id, true, teacherEmail);
+      await toggleStudentAttendance(activeSection.id, student.id, true, teacherEmail, 'present');
       showToast(`Marked ${student.name} present`);
     });
   };
@@ -745,6 +1141,8 @@ export default function App() {
     log: PassLogDoc,
     patch: {
       action: PassAction;
+      destination: PassDestination;
+      quotaExempt: boolean;
       passesUsedAfter: number;
       takenAt: number;
       returnedAt: number;
@@ -795,10 +1193,13 @@ export default function App() {
     const studentMap = new Map(students.map((s) => [s.id, s]));
     let text = `🐾 ${activeSection.name} - Color Groups\n\n`;
     activeSection.groups.forEach((g) => {
-      const names = g.studentIds.map((id) => studentMap.get(id)?.name).filter(Boolean) as string[];
-      text += `=== ${g.name} (${names.length}) ===\n`;
-      names.forEach((n) => {
-        text += `• ${n}\n`;
+      const pts = g.points ? ` · ${g.points > 0 ? `+${g.points}` : g.points} pts` : '';
+      text += `=== ${g.name} (${g.studentIds.length}${pts}) ===\n`;
+      g.studentIds.forEach((id) => {
+        const name = studentMap.get(id)?.name;
+        if (!name) return;
+        const role = g.roles?.[id];
+        text += `• ${name}${role ? ` (${role})` : ''}\n`;
       });
       text += '\n';
     });
@@ -808,12 +1209,14 @@ export default function App() {
   const handleExportCSV = () => {
     if (!activeSection) return;
     const studentMap = new Map(students.map((s) => [s.id, s]));
-    let csv = 'Group Name,Student Name\n';
+    let csv = 'Group Name,Student Name,Role,Points\n';
     activeSection.groups.forEach((g) => {
       g.studentIds.forEach((id) => {
         const name = studentMap.get(id)?.name;
+        const role = g.roles?.[id] || '';
+        const pts = g.points || 0;
         if (name) {
-          csv += `"${g.name.replace(/"/g, '""')}","${name.replace(/"/g, '""')}"\n`;
+          csv += `"${g.name.replace(/"/g, '""')}","${name.replace(/"/g, '""')}","${role.replace(/"/g, '""')}",${pts}\n`;
         }
       });
     });
@@ -843,6 +1246,7 @@ export default function App() {
               id: st.id,
               name: st.name,
               present: st.present,
+              badgeCode: st.badgeCode || '',
               passesUsed: st.passesUsed,
               outTimestamp: st.outTimestamp || null,
             };
@@ -853,6 +1257,9 @@ export default function App() {
             order: sec.order,
             roster,
             groups: sec.groups,
+            floorPlan: sec.floorPlan,
+            keepApartPairs: sec.keepApartPairs || [],
+            pairTogetherPairs: sec.pairTogetherPairs || [],
             settings: {
               quickSize: sec.quickSize,
               quickCount: sec.quickCount,
@@ -911,7 +1318,10 @@ export default function App() {
           students={students}
           standalone
           maxPasses={appSettings.maxQuarterPasses}
+          warnPassAlertMinutes={appSettings.warnPassAlertMinutes}
           longPassAlertMinutes={appSettings.longPassAlertMinutes}
+          exemptDestinations={appSettings.exemptDestinations}
+          deadZone={bellEvaluation.deadZone}
           onSwitchSection={handleSwitchSection}
           onAddToQueue={handleAddToQueue}
           onRemoveFromQueue={handleRemoveFromQueue}
@@ -946,12 +1356,14 @@ export default function App() {
         syncing={syncing}
         activeTab={activeTab}
         currentlyOutCount={currentlyOutCount}
+        currentBellSlotLabel={bellEvaluation.currentSlotLabel}
         onSwitchSection={handleSwitchSection}
         onOpenAddSection={() => setAddSectionOpen(true)}
         onOpenProjector={() => setProjectorOpen(true)}
         onOpenSpotlight={handleOpenSpotlight}
         onOpenPassPopout={() => void handleOpenPassPopout()}
         onOpenSettings={() => setSettingsOpen(true)}
+        onOpenShortcuts={() => setShortcutsOpen(true)}
         onSignOut={() => void signOutTeacher()}
         onSwitchTab={handleTabChange}
       />
@@ -962,6 +1374,12 @@ export default function App() {
             section={activeSection}
             students={students}
             onGenerateGroups={handleGenerateGroups}
+            onRotateRoles={handleRotateRoles}
+            onToggleLockStudent={handleToggleLockStudent}
+            onAdjustGroupPoints={handleAdjustGroupPoints}
+            onResetAllGroupPoints={handleResetAllGroupPoints}
+            onSaveFloorPlan={handleSaveFloorPlan}
+            onApplyFloorPlanToAll={handleApplyFloorPlanToAll}
             onMoveStudent={handleMoveStudent}
             onRemoveStudentFromGroup={handleRemoveStudentFromGroup}
             onOpenQuickMove={(studentId, currentGroupId) =>
@@ -975,11 +1393,14 @@ export default function App() {
 
         {activeTab === 'roster' && (
           <ClassRosterTab
+            section={activeSection}
             students={students}
             maxPasses={appSettings.maxQuarterPasses}
             onAddStudent={handleAddStudent}
             onBulkImport={handleBulkImport}
-            onToggleAttendance={handleToggleAttendance}
+            onSetAttendanceStatus={handleSetAttendanceStatus}
+            onDropTardyIntoSeat={handleDropTardyIntoSeat}
+            onUpdateBadgeCode={handleUpdateBadgeCode}
             onMarkAllAttendance={handleMarkAllAttendance}
             onDeleteStudent={handleDeleteStudent}
             onOpenStudentHistory={openStudentDocHistory}
@@ -989,10 +1410,16 @@ export default function App() {
         {activeTab === 'settings' && (
           <GroupRulesTab
             section={activeSection}
+            students={students}
             sectionsCount={sections.length}
+            autoRotateRoles={appSettings.autoRotateRoles}
+            avoidRecentPairs={appSettings.avoidRecentPairs}
             onSelectQuickSize={handleSelectQuickSize}
             onSelectQuickCount={handleSelectQuickCount}
             onToggleForceCount={handleToggleForceCount}
+            onToggleAutoRotateRoles={handleToggleAutoRotateRoles}
+            onToggleAvoidRecentPairs={handleToggleAvoidRecentPairs}
+            onUpdatePairRules={handleUpdatePairRules}
             onGenerateGroups={handleGenerateGroups}
             onRenameSection={handleRenameSection}
             onDeleteSection={handleDeleteSection}
@@ -1007,7 +1434,10 @@ export default function App() {
             students={students}
             passLogs={passLogs}
             maxPasses={appSettings.maxQuarterPasses}
+            warnPassAlertMinutes={appSettings.warnPassAlertMinutes}
             longPassAlertMinutes={appSettings.longPassAlertMinutes}
+            exemptDestinations={appSettings.exemptDestinations}
+            deadZone={bellEvaluation.deadZone}
             onIssuePass={handleIssuePass}
             onReturnStudent={handleReturnStudent}
             onAdjustPassCount={handleAdjustPassCount}
@@ -1045,26 +1475,37 @@ export default function App() {
         students={students}
         spotlightWinner={spotlightWinner}
         spotlightTrigger={spotlightTrigger}
+        timerToggleTrigger={timerToggleTrigger}
+        fistToFiveTrigger={fistToFiveTrigger}
         defaultTimerSeconds={appSettings.defaultTimerSeconds}
         timerSoundEnabled={appSettings.timerSoundEnabled}
+        timerStages={appSettings.timerStages}
         onSpotlightWinner={(winner) => {
           setSpotlightWinner(winner);
           if (winner) {
             showToast(`Spotlight: ${winner.studentName}!`);
           }
         }}
+        onUpdateSpotlightDeck={handleUpdateSpotlightDeck}
         onNotifyError={(msg) => showToast(msg, 'error')}
         onClose={() => setProjectorOpen(false)}
         onOpenGroupRules={() => setProjectorRulesOpen(true)}
         onOpenSettings={() => setSettingsOpen(true)}
+        onOpenShortcuts={() => setShortcutsOpen(true)}
         onReshuffle={handleGenerateGroups}
+        onRotateRoles={handleRotateRoles}
+        onToggleLockStudent={handleToggleLockStudent}
+        onAdjustGroupPoints={handleAdjustGroupPoints}
+        onSaveFloorPlan={handleSaveFloorPlan}
         onMoveStudent={handleMoveStudent}
         onOpenQuickMove={(studentId, currentGroupId) =>
           setQuickMoveTarget({ studentId, currentGroupId })
         }
         onRemoveAbsentFromGroups={handleRemoveAbsentFromProjector}
         onRestorePresentStudent={handleRestorePresentStudent}
-        onTimerFinished={() => showToast("🔔 Time's Up!")}
+        onTimerFinished={(phaseTitle) =>
+          showToast(phaseTitle ? `🔔 Phase Complete: ${phaseTitle}` : "🔔 Time's Up!")
+        }
       />
 
       {/* Document PiP Floating Window Portal */}
@@ -1074,7 +1515,10 @@ export default function App() {
             section={activeSection}
             students={students}
             maxPasses={appSettings.maxQuarterPasses}
+            warnPassAlertMinutes={appSettings.warnPassAlertMinutes}
             longPassAlertMinutes={appSettings.longPassAlertMinutes}
+            exemptDestinations={appSettings.exemptDestinations}
+            deadZone={bellEvaluation.deadZone}
             onAddToQueue={handleAddToQueue}
             onRemoveFromQueue={handleRemoveFromQueue}
             onMoveQueueUp={handleMoveQueueUp}
@@ -1105,7 +1549,10 @@ export default function App() {
               section={activeSection}
               students={students}
               maxPasses={appSettings.maxQuarterPasses}
+              warnPassAlertMinutes={appSettings.warnPassAlertMinutes}
               longPassAlertMinutes={appSettings.longPassAlertMinutes}
+              exemptDestinations={appSettings.exemptDestinations}
+              deadZone={bellEvaluation.deadZone}
               onAddToQueue={handleAddToQueue}
               onRemoveFromQueue={handleRemoveFromQueue}
               onMoveQueueUp={handleMoveQueueUp}
@@ -1179,12 +1626,14 @@ export default function App() {
         longPassAlertMinutes={appSettings.longPassAlertMinutes}
         onReturnStudent={handleReturnStudent}
         onEditLog={setEditingLog}
+        onCopiedReport={(msg) => showToast(msg)}
         onClose={() => setHistoryTarget(null)}
       />
 
       <SettingsModal
         open={settingsOpen}
         settings={appSettings}
+        sections={sections}
         sectionsCount={sections.length}
         activeSectionName={activeSection?.name}
         onPreviewTheme={(theme) =>
@@ -1197,6 +1646,8 @@ export default function App() {
           setSettingsOpen(false);
         }}
       />
+
+      <ShortcutsModal open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
 
       <EditPassLogModal
         log={editingLog}

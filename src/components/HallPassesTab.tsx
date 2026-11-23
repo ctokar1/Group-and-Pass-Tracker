@@ -1,27 +1,33 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
+  AlertTriangle,
   ArrowUp,
   Ban,
   CheckCircle2,
   Clock,
   History,
   ListOrdered,
+  Lock,
+  MapPin,
   Minus,
   PictureInPicture2,
   Plus,
   RotateCcw,
   Search,
+  ShieldCheck,
   Ticket,
   Trash2,
+  Unlock,
 } from 'lucide-react';
 import {
-  LIMITS,
   MAX_QUARTER_PASSES,
+  PASS_DESTINATIONS,
   type ClassSectionDoc,
+  type PassDestination,
   type PassLogDoc,
   type StudentDoc,
 } from '../types/classroom';
-
+import { type DeadZoneStatus, formatCountdownMMSS } from '../lib/bellSchedule';
 import { formatDurationExact } from './PassHistoryTab';
 
 interface HallPassesTabProps {
@@ -29,8 +35,11 @@ interface HallPassesTabProps {
   students: StudentDoc[];
   passLogs: PassLogDoc[];
   maxPasses?: number;
+  warnPassAlertMinutes?: number;
   longPassAlertMinutes?: number;
-  onIssuePass: (student: StudentDoc) => Promise<void>;
+  exemptDestinations?: PassDestination[];
+  deadZone?: DeadZoneStatus;
+  onIssuePass: (student: StudentDoc, destination: PassDestination) => Promise<void>;
   onReturnStudent: (student: StudentDoc) => Promise<void>;
   onAdjustPassCount: (student: StudentDoc, delta: number) => Promise<void>;
   onAddToQueue: (studentId: string) => Promise<void>;
@@ -66,7 +75,10 @@ export const HallPassesTab: React.FC<HallPassesTabProps> = ({
   students,
   passLogs,
   maxPasses = MAX_QUARTER_PASSES,
-  longPassAlertMinutes = 7,
+  warnPassAlertMinutes = 5,
+  longPassAlertMinutes = 8,
+  exemptDestinations = ['Nurse', 'Counselor'],
+  deadZone,
   onIssuePass,
   onReturnStudent,
   onAdjustPassCount,
@@ -80,15 +92,20 @@ export const HallPassesTab: React.FC<HallPassesTabProps> = ({
   onOpenStudentHistory,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedDestination, setSelectedDestination] = useState<PassDestination>('Restroom');
+  const [deadZoneOverride, setDeadZoneOverride] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [showAllLogs, setShowAllLogs] = useState(false);
   const [queuePickerId, setQueuePickerId] = useState('');
 
-  // Live ticker every 1 second for accurate time-out counters
   useEffect(() => {
     const id = window.setInterval(() => setNowMs(Date.now()), 1000);
     return () => window.clearInterval(id);
   }, []);
+
+  const exemptSet = useMemo(() => new Set(exemptDestinations), [exemptDestinations]);
+  const isSelectedExempt = exemptSet.has(selectedDestination);
+  const isDeadZoneLocked = Boolean(deadZone?.locked) && !deadZoneOverride && !isSelectedExempt;
 
   const queryText = searchQuery.trim().toLowerCase();
   const sortedRoster = useMemo(
@@ -145,46 +162,145 @@ export const HallPassesTab: React.FC<HallPassesTabProps> = ({
   return (
     <section className="space-y-6">
       {/* Hall Pass Control Bar */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h2 className="font-black text-lg text-white flex items-center gap-2">
-            <span>🚽</span> Quarter Bathroom Pass Tracker
-          </h2>
-          <p className="text-xs text-slate-400 mt-0.5">
-            Only <strong className="text-amber-300">1 student</strong> allowed out at a time · Students receive {maxPasses} passes per quarter.
-          </p>
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h2 className="font-black text-lg text-white flex items-center gap-2">
+              <span>🚽</span> Quarter Hall Pass &amp; Queue Tracker
+            </h2>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Only <strong className="text-amber-300">1 student</strong> allowed out at a time · {maxPasses} passes/quarter · Alerts at{' '}
+              <span className="text-amber-300 font-bold">{warnPassAlertMinutes}m</span> &amp;{' '}
+              <span className="text-rose-400 font-bold">{longPassAlertMinutes}m</span>.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2.5">
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search student name..."
+                className="bg-slate-950 border border-slate-800 rounded-xl pl-8 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-400 w-48"
+              />
+            </div>
+            <button
+              onClick={onOpenPassPopout}
+              className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-emerald-300 border border-slate-700 font-extrabold text-xs rounded-xl flex items-center gap-1.5 transition-all whitespace-nowrap cursor-pointer"
+              title="Open pop-out Restroom Status, Queue & Door Kiosk window"
+            >
+              <PictureInPicture2 className="w-3.5 h-3.5" />
+              Pop Out / Kiosk Window
+            </button>
+            <button
+              onClick={onOpenResetModal}
+              className="px-3.5 py-2 bg-rose-950/60 hover:bg-rose-900 text-rose-300 border border-rose-800/60 font-extrabold text-xs rounded-xl flex items-center gap-1.5 transition-all whitespace-nowrap cursor-pointer"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              Reset All for Quarter
+            </button>
+          </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2.5">
-          <div className="relative">
-            <Search className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search student name..."
-              className="bg-slate-950 border border-slate-800 rounded-xl pl-8 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-400 w-48"
-            />
+        {/* Destination Tag Selector */}
+        <div className="pt-3 border-t border-slate-800 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-extrabold text-slate-300 flex items-center gap-1.5 mr-1">
+              <MapPin className="w-3.5 h-3.5 text-amber-400" />
+              Pass Destination:
+            </span>
+            {PASS_DESTINATIONS.map((dest) => {
+              const active = selectedDestination === dest.id;
+              const exempt = exemptSet.has(dest.id);
+              return (
+                <button
+                  key={dest.id}
+                  type="button"
+                  onClick={() => setSelectedDestination(dest.id)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-extrabold border flex items-center gap-1.5 transition-colors cursor-pointer ${
+                    active
+                      ? 'bg-amber-400 text-black border-amber-300'
+                      : 'bg-slate-950 hover:bg-slate-800 text-slate-200 border-slate-700'
+                  }`}
+                >
+                  <span>{dest.label}</span>
+                  {exempt && (
+                    <span
+                      className={`text-[10px] font-black px-1.5 py-0.5 rounded ${
+                        active
+                          ? 'bg-black/15 text-black'
+                          : 'bg-emerald-500/20 text-emerald-300'
+                      }`}
+                    >
+                      No Ticket
+                    </span>
+                  )}
+                </button>
+              );
+            })}
           </div>
-          <button
-            onClick={onOpenPassPopout}
-            className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-emerald-300 border border-slate-700 font-extrabold text-xs rounded-xl flex items-center gap-1.5 transition-all whitespace-nowrap cursor-pointer"
-            title="Open pop-out Restroom Status & Line window to drag onto another monitor"
-          >
-            <PictureInPicture2 className="w-3.5 h-3.5" />
-            Pop Out Restroom Window
-          </button>
-          <button
-            onClick={onOpenResetModal}
-            className="px-3.5 py-2 bg-rose-950/60 hover:bg-rose-900 text-rose-300 border border-rose-800/60 font-extrabold text-xs rounded-xl flex items-center gap-1.5 transition-all whitespace-nowrap cursor-pointer"
-          >
-            <RotateCcw className="w-3.5 h-3.5" />
-            Reset All for Quarter
-          </button>
+          {isSelectedExempt && (
+            <span className="text-xs font-bold text-emerald-400 flex items-center gap-1">
+              <ShieldCheck className="w-3.5 h-3.5" />
+              {selectedDestination} logs to history without deducting a ticket
+            </span>
+          )}
         </div>
       </div>
 
-      {/* Currently Out Live Banner */}
+      {/* Bell-Schedule Dead Zone Lockout Banner */}
+      {deadZone?.locked && (
+        <div
+          className={`rounded-2xl p-4 border-2 flex flex-wrap items-center justify-between gap-3 ${
+            deadZoneOverride
+              ? 'bg-slate-900 border-amber-500/50'
+              : 'bg-rose-950/45 border-rose-500'
+          }`}
+        >
+          <div className="flex items-center gap-3">
+            <div
+              className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                deadZoneOverride
+                  ? 'bg-amber-400/20 text-amber-300'
+                  : 'bg-rose-500/25 text-rose-300'
+              }`}
+            >
+              {deadZoneOverride ? <Unlock className="w-5 h-5" /> : <Lock className="w-5 h-5" />}
+            </div>
+            <div>
+              <h3 className="font-black text-sm text-white flex items-center gap-2">
+                <span>
+                  {deadZoneOverride
+                    ? 'Dead Zone Lockout Overridden by Teacher'
+                    : `Hallway Dead Zone Active — ${deadZone.reason}`}
+                </span>
+                <span className="px-2 py-0.5 rounded-lg bg-slate-950 text-amber-300 font-mono-tabular text-xs border border-slate-800">
+                  Unlocks in {formatCountdownMMSS(deadZone.unlockCountdownSeconds)}
+                </span>
+              </h3>
+              <p className="text-xs text-slate-300 mt-0.5">
+                {deadZone.windowLabel}. Standard passes are paused (Nurse/Counselor remain available).
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setDeadZoneOverride((v) => !v)}
+            className={`px-3.5 py-2 rounded-xl font-black text-xs border cursor-pointer transition-colors ${
+              deadZoneOverride
+                ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
+                : 'bg-amber-400 hover:bg-amber-300 text-black border-amber-300'
+            }`}
+          >
+            {deadZoneOverride ? 'Re-Enable Lockout' : 'Teacher Override'}
+          </button>
+        </div>
+      )}
+
+      {/* Currently Out Live Banner (Two-Stage Visual Alerts) */}
       {currentlyOut.length > 0 && (
         <div className="bg-amber-950/35 border-2 border-amber-500/75 rounded-2xl p-4 space-y-3">
           <div className="flex items-center justify-between gap-3">
@@ -205,23 +321,44 @@ export const HallPassesTab: React.FC<HallPassesTabProps> = ({
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
             {currentlyOut.map((st) => {
               const elapsedSeconds = Math.max(0, Math.floor((nowMs - st.outTimestamp) / 1000));
-              const isOverdue = elapsedSeconds >= longPassAlertMinutes * 60;
+              const isCritical = elapsedSeconds >= longPassAlertMinutes * 60;
+              const isWarning = !isCritical && elapsedSeconds >= warnPassAlertMinutes * 60;
+              const destLabel = st.activeDestination || 'Restroom';
+
               return (
                 <div
                   key={st.id}
-                  className={`bg-slate-900 border rounded-xl p-3 flex items-center justify-between gap-2 ${
-                    isOverdue ? 'border-rose-500/80' : 'border-amber-400/80'
+                  className={`bg-slate-900 border-2 rounded-xl p-3 flex items-center justify-between gap-2 ${
+                    isCritical
+                      ? 'border-rose-500 bg-rose-950/30 animate-pulse'
+                      : isWarning
+                      ? 'border-amber-400 bg-amber-950/25'
+                      : 'border-amber-400/70'
                   }`}
                 >
                   <div className="min-w-0">
-                    <span className="font-black text-xs text-white block truncate">{st.name}</span>
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span className="font-black text-xs text-white truncate">{st.name}</span>
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-800 text-slate-200 shrink-0">
+                        {destLabel}
+                      </span>
+                    </div>
                     <span
-                      className={`text-[11px] font-bold font-mono-tabular flex items-center gap-1 mt-0.5 ${
-                        isOverdue ? 'text-rose-400' : 'text-amber-300'
+                      className={`text-[11px] font-extrabold font-mono-tabular flex items-center gap-1 mt-1 ${
+                        isCritical
+                          ? 'text-rose-400'
+                          : isWarning
+                          ? 'text-amber-300'
+                          : 'text-emerald-300'
                       }`}
                     >
-                      <Clock className="w-3 h-3 shrink-0" />
-                      Out {formatDurationExact(elapsedSeconds)}
+                      {isCritical ? (
+                        <AlertTriangle className="w-3 h-3 shrink-0" />
+                      ) : (
+                        <Clock className="w-3 h-3 shrink-0" />
+                      )}
+                      {isCritical ? 'OVERDUE · ' : isWarning ? 'Check Soon · ' : 'Out '}
+                      {formatDurationExact(elapsedSeconds)}
                     </span>
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">
@@ -330,9 +467,9 @@ export const HallPassesTab: React.FC<HallPassesTabProps> = ({
                   #{idx + 1}
                 </span>
                 <span className="font-bold text-white">{st.name}</span>
-                {!someoneOut && idx === 0 && st.passesUsed < maxPasses && (
+                {!someoneOut && idx === 0 && !isDeadZoneLocked && (st.passesUsed < maxPasses || isSelectedExempt) && (
                   <button
-                    onClick={() => void onIssuePass(st)}
+                    onClick={() => void onIssuePass(st, selectedDestination)}
                     className="px-2 py-0.5 bg-emerald-500 hover:bg-emerald-400 text-black font-black text-[11px] rounded-md cursor-pointer"
                   >
                     Send Next
@@ -374,14 +511,18 @@ export const HallPassesTab: React.FC<HallPassesTabProps> = ({
             const isMax = passesRemaining <= 0;
             const isOut = st.outTimestamp > 0;
             const elapsedSeconds = isOut ? Math.max(0, Math.floor((nowMs - st.outTimestamp) / 1000)) : 0;
+            const isCritical = isOut && elapsedSeconds >= longPassAlertMinutes * 60;
             const queueIndex = queuedIndexMap.get(st.id);
             const isInLine = typeof queueIndex === 'number';
+            const canExemptOverrideMax = isSelectedExempt && !isOut;
 
             return (
               <div
                 key={st.id}
                 className={`bg-slate-900 border rounded-xl p-3 flex flex-col justify-between space-y-2.5 transition-colors ${
-                  isOut
+                  isCritical
+                    ? 'border-rose-500 bg-rose-950/25'
+                    : isOut
                     ? 'border-amber-400 bg-amber-950/20'
                     : isMax
                     ? 'border-rose-500/60 bg-rose-950/20'
@@ -458,13 +599,24 @@ export const HallPassesTab: React.FC<HallPassesTabProps> = ({
                       <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
                       <span className="truncate">Return ({formatDurationExact(elapsedSeconds)})</span>
                     </button>
-                  ) : isMax ? (
+                  ) : isMax && !canExemptOverrideMax ? (
                     <button
                       disabled
                       className="flex-1 py-1.5 bg-rose-950 text-rose-400 border border-rose-500/40 font-extrabold text-[11px] rounded-lg flex items-center justify-center gap-1 cursor-not-allowed min-w-0"
                     >
                       <Ban className="w-3 h-3 shrink-0" />
                       <span className="truncate">Limit Reached</span>
+                    </button>
+                  ) : isDeadZoneLocked ? (
+                    <button
+                      disabled
+                      className="flex-1 py-1.5 bg-slate-800/70 text-rose-300 border border-rose-500/30 font-extrabold text-[11px] rounded-lg flex items-center justify-center gap-1 cursor-not-allowed font-mono-tabular min-w-0"
+                      title="Locked during bell-schedule dead zone"
+                    >
+                      <Lock className="w-3 h-3 shrink-0" />
+                      <span className="truncate">
+                        {formatCountdownMMSS(deadZone?.unlockCountdownSeconds || 0)}
+                      </span>
                     </button>
                   ) : someoneOut ? (
                     isInLine ? (
@@ -488,12 +640,12 @@ export const HallPassesTab: React.FC<HallPassesTabProps> = ({
                     )
                   ) : (
                     <button
-                      onClick={() => onIssuePass(st)}
+                      onClick={() => onIssuePass(st, selectedDestination)}
                       className="flex-1 py-1.5 bg-slate-800 hover:bg-amber-400 hover:text-black text-amber-300 font-extrabold text-[11px] rounded-lg border border-amber-500/30 flex items-center justify-center gap-1 transition-colors cursor-pointer min-w-0"
                     >
                       <Ticket className="w-3.5 h-3.5 shrink-0" />
                       <span className="truncate">
-                        {isInLine ? `Go (#${queueIndex! + 1})` : 'Issue Pass'}
+                        {isInLine ? `Go (#${queueIndex! + 1})` : selectedDestination}
                       </span>
                     </button>
                   )}
@@ -563,6 +715,7 @@ export const HallPassesTab: React.FC<HallPassesTabProps> = ({
                 <tr>
                   <th className="py-2 pr-3 font-semibold">Student</th>
                   <th className="py-2 px-3 font-semibold">Period</th>
+                  <th className="py-2 px-3 font-semibold">Destination</th>
                   <th className="py-2 px-3 font-semibold">Action &amp; Time Out</th>
                   <th className="py-2 px-3 font-semibold text-right">Passes Left</th>
                   <th className="py-2 px-3 font-semibold">Teacher</th>
@@ -596,6 +749,16 @@ export const HallPassesTab: React.FC<HallPassesTabProps> = ({
                         </button>
                       </td>
                       <td className="py-2 px-3 text-slate-400 whitespace-nowrap">{log.sectionName}</td>
+                      <td className="py-2 px-3 whitespace-nowrap">
+                        <span className="text-slate-200 font-semibold">
+                          {log.destination || 'Restroom'}
+                        </span>
+                        {log.quotaExempt && (
+                          <span className="ml-1.5 text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300">
+                            Exempt
+                          </span>
+                        )}
+                      </td>
                       <td className="py-2 px-3 whitespace-nowrap">
                         <span
                           className={`font-bold ${
