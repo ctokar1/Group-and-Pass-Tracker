@@ -29,6 +29,7 @@ interface HallPassesTabProps {
   onAdjustPassCount: (student: StudentDoc, delta: number) => Promise<void>;
   onOpenResetModal: () => void;
   onViewFullHistory: () => void;
+  onOpenStudentHistory: (student: StudentDoc) => void;
 }
 
 function formatLogDateTime(log: PassLogDoc): string {
@@ -58,6 +59,7 @@ export const HallPassesTab: React.FC<HallPassesTabProps> = ({
   onAdjustPassCount,
   onOpenResetModal,
   onViewFullHistory,
+  onOpenStudentHistory,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [nowMs, setNowMs] = useState(() => Date.now());
@@ -154,13 +156,23 @@ export const HallPassesTab: React.FC<HallPassesTabProps> = ({
                       Out {formatDurationExact(elapsedSeconds)}
                     </span>
                   </div>
-                  <button
-                    onClick={() => onReturnStudent(st)}
-                    className="px-2.5 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs rounded-lg flex items-center gap-1 whitespace-nowrap shrink-0 cursor-pointer"
-                  >
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    Return
-                  </button>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      onClick={() => onOpenStudentHistory(st)}
+                      className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-amber-300 rounded-lg border border-slate-700 cursor-pointer"
+                      title={`View pass history for ${st.name}`}
+                      aria-label={`View pass history for ${st.name}`}
+                    >
+                      <History className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => onReturnStudent(st)}
+                      className="px-2.5 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs rounded-lg flex items-center gap-1 whitespace-nowrap shrink-0 cursor-pointer"
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      Return
+                    </button>
+                  </div>
                 </div>
               );
             })}
@@ -243,32 +255,42 @@ export const HallPassesTab: React.FC<HallPassesTabProps> = ({
                   </span>
                 </div>
 
-                {/* Action Button */}
-                {isOut ? (
+                {/* Action Button + Individual History Button */}
+                <div className="flex items-center gap-1.5">
+                  {isOut ? (
+                    <button
+                      onClick={() => onReturnStudent(st)}
+                      className="flex-1 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-black font-extrabold text-[11px] rounded-lg flex items-center justify-center gap-1 font-mono-tabular cursor-pointer min-w-0"
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                      <span className="truncate">Return ({formatDurationExact(elapsedSeconds)})</span>
+                    </button>
+                  ) : isMax ? (
+                    <button
+                      disabled
+                      className="flex-1 py-1.5 bg-rose-950 text-rose-400 border border-rose-500/40 font-extrabold text-[11px] rounded-lg flex items-center justify-center gap-1 cursor-not-allowed min-w-0"
+                    >
+                      <Ban className="w-3 h-3 shrink-0" />
+                      <span className="truncate">Limit Reached</span>
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => onIssuePass(st)}
+                      className="flex-1 py-1.5 bg-slate-800 hover:bg-amber-400 hover:text-black text-amber-300 font-extrabold text-[11px] rounded-lg border border-amber-500/30 flex items-center justify-center gap-1 transition-colors cursor-pointer min-w-0"
+                    >
+                      <Ticket className="w-3.5 h-3.5 shrink-0" />
+                      <span className="truncate">Issue Pass</span>
+                    </button>
+                  )}
                   <button
-                    onClick={() => onReturnStudent(st)}
-                    className="w-full py-1.5 bg-emerald-500 hover:bg-emerald-400 text-black font-extrabold text-[11px] rounded-lg flex items-center justify-center gap-1 font-mono-tabular cursor-pointer"
+                    onClick={() => onOpenStudentHistory(st)}
+                    className="px-2 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-amber-300 border border-slate-700 rounded-lg flex items-center justify-center shrink-0 transition-colors cursor-pointer"
+                    title={`View pass history for ${st.name}`}
+                    aria-label={`View pass history for ${st.name}`}
                   >
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    Return ({formatDurationExact(elapsedSeconds)})
+                    <History className="w-3.5 h-3.5" />
                   </button>
-                ) : isMax ? (
-                  <button
-                    disabled
-                    className="w-full py-1.5 bg-rose-950 text-rose-400 border border-rose-500/40 font-extrabold text-[11px] rounded-lg flex items-center justify-center gap-1 cursor-not-allowed"
-                  >
-                    <Ban className="w-3 h-3" />
-                    Limit Reached
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => onIssuePass(st)}
-                    className="w-full py-1.5 bg-slate-800 hover:bg-amber-400 hover:text-black text-amber-300 font-extrabold text-[11px] rounded-lg border border-amber-500/30 flex items-center justify-center gap-1 transition-colors cursor-pointer"
-                  >
-                    <Ticket className="w-3.5 h-3.5" />
-                    Issue Pass
-                  </button>
-                )}
+                </div>
               </div>
             );
           })
@@ -340,7 +362,23 @@ export const HallPassesTab: React.FC<HallPassesTabProps> = ({
                       : log.durationMinutes * 60;
                   return (
                     <tr key={log.id} className="hover:bg-slate-950/60">
-                      <td className="py-2 pr-3 font-bold text-white whitespace-nowrap">{log.studentName}</td>
+                      <td className="py-2 pr-3 font-bold text-white whitespace-nowrap">
+                        <button
+                          onClick={() => {
+                            const match = students.find((s) => s.id === log.studentId);
+                            if (match) {
+                              onOpenStudentHistory(match);
+                            } else {
+                              onViewFullHistory();
+                            }
+                          }}
+                          className="hover:text-amber-300 hover:underline inline-flex items-center gap-1 cursor-pointer text-left"
+                          title={`View pass history for ${log.studentName}`}
+                        >
+                          <span>{log.studentName}</span>
+                          <History className="w-3 h-3 text-slate-500" />
+                        </button>
+                      </td>
                       <td className="py-2 px-3 text-slate-400 whitespace-nowrap">{log.sectionName}</td>
                       <td className="py-2 px-3 whitespace-nowrap">
                         <span

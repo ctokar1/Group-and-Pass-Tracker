@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { CheckSquare, FileText, Trash2, UserPlus, XSquare } from 'lucide-react';
+import { CheckSquare, FileText, History, Trash2, UserPlus, XSquare } from 'lucide-react';
 import { LIMITS, type StudentDoc } from '../types/classroom';
 
 interface ClassRosterTabProps {
@@ -9,6 +9,7 @@ interface ClassRosterTabProps {
   onToggleAttendance: (studentId: string, present: boolean) => Promise<void>;
   onMarkAllAttendance: (present: boolean) => Promise<void>;
   onDeleteStudent: (studentId: string) => Promise<void>;
+  onOpenStudentHistory: (student: StudentDoc) => void;
 }
 
 export const ClassRosterTab: React.FC<ClassRosterTabProps> = ({
@@ -18,6 +19,7 @@ export const ClassRosterTab: React.FC<ClassRosterTabProps> = ({
   onToggleAttendance,
   onMarkAllAttendance,
   onDeleteStudent,
+  onOpenStudentHistory,
 }) => {
   const [newStudentName, setNewStudentName] = useState('');
   const [bulkText, setBulkText] = useState('');
@@ -164,10 +166,19 @@ export const ClassRosterTab: React.FC<ClassRosterTabProps> = ({
                   </span>
                 </label>
 
-                <div className="flex items-center gap-3 shrink-0">
+                <div className="flex items-center gap-2.5 shrink-0">
                   <span className="text-xs font-mono-tabular text-slate-400">
                     {st.passesUsed}/{LIMITS.MAX_PASSES} passes
                   </span>
+                  <button
+                    onClick={() => onOpenStudentHistory(st)}
+                    className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold text-xs rounded-lg border border-slate-700 flex items-center gap-1 transition-colors cursor-pointer"
+                    title={`View pass history for ${st.name}`}
+                    aria-label={`View pass history for ${st.name}`}
+                  >
+                    <History className="w-3.5 h-3.5" />
+                    History
+                  </button>
                   <button
                     onClick={() => onDeleteStudent(st.id)}
                     className="p-1.5 text-slate-500 hover:text-rose-400 transition-colors cursor-pointer"

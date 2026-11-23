@@ -58,6 +58,10 @@ import {
   ResetPassesModal,
   SpotlightModal,
 } from './components/Modals';
+import {
+  StudentHistoryModal,
+  type StudentHistoryTarget,
+} from './components/StudentHistoryModal';
 
 export default function App() {
   const [authReady, setAuthReady] = useState(false);
@@ -98,6 +102,7 @@ export default function App() {
     studentName: string;
     groupName: string;
   } | null>(null);
+  const [historyTarget, setHistoryTarget] = useState<StudentHistoryTarget | null>(null);
 
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
@@ -232,6 +237,27 @@ export default function App() {
   }
 
   const currentlyOutCount = students.filter((s) => s.outTimestamp > 0).length;
+
+  const openStudentHistory = (target: StudentHistoryTarget) => {
+    const liveMatch = target.liveStudent || students.find((s) => s.id === target.id);
+    setHistoryTarget({
+      ...target,
+      sectionName: target.sectionName || activeSection?.name,
+      liveStudent: liveMatch,
+    });
+  };
+
+  const openStudentDocHistory = (st: StudentDoc) => {
+    openStudentHistory({
+      id: st.id,
+      name: st.name,
+      sectionId: st.sectionId,
+      sectionName: activeSection?.name,
+      passesUsed: st.passesUsed,
+      outTimestamp: st.outTimestamp,
+      liveStudent: st,
+    });
+  };
 
   // Handlers
   const handleSwitchSection = (secId: string) => {
@@ -607,6 +633,7 @@ export default function App() {
             onToggleAttendance={handleToggleAttendance}
             onMarkAllAttendance={handleMarkAllAttendance}
             onDeleteStudent={handleDeleteStudent}
+            onOpenStudentHistory={openStudentDocHistory}
           />
         )}
 
@@ -635,6 +662,7 @@ export default function App() {
             onAdjustPassCount={handleAdjustPassCount}
             onOpenResetModal={() => setResetModalOpen(true)}
             onViewFullHistory={() => handleTabChange('history')}
+            onOpenStudentHistory={openStudentDocHistory}
           />
         )}
 
@@ -644,6 +672,7 @@ export default function App() {
             students={students}
             passLogs={passLogs}
             onReturnStudent={handleReturnStudent}
+            onOpenStudentHistory={openStudentHistory}
           />
         )}
       </main>
@@ -719,6 +748,22 @@ export default function App() {
         sectionName={activeSection?.name || 'this section'}
         onConfirm={handleResetQuarterPasses}
         onClose={() => setResetModalOpen(false)}
+      />
+
+      <StudentHistoryModal
+        target={
+          historyTarget
+            ? {
+                ...historyTarget,
+                liveStudent:
+                  students.find((s) => s.id === historyTarget.id) ||
+                  historyTarget.liveStudent,
+              }
+            : null
+        }
+        passLogs={passLogs}
+        onReturnStudent={handleReturnStudent}
+        onClose={() => setHistoryTarget(null)}
       />
 
       {/* Toast Container */}

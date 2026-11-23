@@ -5,6 +5,7 @@ import {
   Download,
   History,
   Search,
+  Users,
 } from 'lucide-react';
 import {
   MAX_QUARTER_PASSES,
@@ -12,86 +13,24 @@ import {
   type PassLogDoc,
   type StudentDoc,
 } from '../types/classroom';
+import {
+  formatDateOnly,
+  formatDurationExact,
+  formatTimeOnly,
+  getLogCreatedMillis,
+  getLogReturnedMillis,
+  getLogTakenMillis,
+  type StudentHistoryTarget,
+} from './StudentHistoryModal';
+
+export { formatDurationExact };
 
 interface PassHistoryTabProps {
   section: ClassSectionDoc | undefined;
   students: StudentDoc[];
   passLogs: PassLogDoc[];
   onReturnStudent: (student: StudentDoc) => Promise<void>;
-}
-
-function getLogMillis(log: PassLogDoc): number {
-  if (typeof log.takenAt === 'number' && log.takenAt > 0) {
-    return log.takenAt;
-  }
-  if (
-    log.createdAt &&
-    typeof log.createdAt === 'object' &&
-    'toMillis' in log.createdAt
-  ) {
-    const ms = (log.createdAt as { toMillis: () => number }).toMillis();
-    if (log.action === 'returned' && log.durationMinutes > 0) {
-      return ms - log.durationMinutes * 60000;
-    }
-    return ms;
-  }
-  return Date.now();
-}
-
-function getReturnedMillis(log: PassLogDoc): number {
-  if (typeof log.returnedAt === 'number' && log.returnedAt > 0) {
-    return log.returnedAt;
-  }
-  if (
-    log.createdAt &&
-    typeof log.createdAt === 'object' &&
-    'toMillis' in log.createdAt
-  ) {
-    return (log.createdAt as { toMillis: () => number }).toMillis();
-  }
-  return Date.now();
-}
-
-function getCreatedMillis(log: PassLogDoc): number {
-  if (
-    log.createdAt &&
-    typeof log.createdAt === 'object' &&
-    'toMillis' in log.createdAt
-  ) {
-    return (log.createdAt as { toMillis: () => number }).toMillis();
-  }
-  return log.takenAt || Date.now();
-}
-
-export function formatDurationExact(totalSeconds: number): string {
-  const safe = Math.max(0, Math.round(totalSeconds));
-  const hours = Math.floor(safe / 3600);
-  const mins = Math.floor((safe % 3600) / 60);
-  const secs = safe % 60;
-  if (hours > 0) {
-    return `${hours}h ${mins}m ${secs}s`;
-  }
-  if (mins > 0) {
-    return `${mins}m ${String(secs).padStart(2, '0')}s`;
-  }
-  return `${secs}s`;
-}
-
-function formatDateOnly(ms: number): string {
-  return new Date(ms).toLocaleDateString([], {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  });
-}
-
-function formatTimeOnly(ms: number): string {
-  return new Date(ms).toLocaleTimeString([], {
-    hour: 'numeric',
-    minute: '2-digit',
-    second: '2-digit',
-  });
+  onOpenStudentHistory: (target: StudentHistoryTarget) => void;
 }
 
 function toLocalDateKey(ms: number): string {
@@ -117,16 +56,33 @@ interface TripRow {
   activeStudent?: StudentDoc;
 }
 
+interface StudentSummaryRow {
+  studentId: string;
+  studentName: string;
+  sectionId: string;
+  sectionName: string;
+  passesUsed: number;
+  tripsCount: number;
+  completedCount: number;
+  totalSeconds: number;
+  avgSeconds: number;
+  lastTakenMs: number | null;
+  isActive: boolean;
+  activeDurationSeconds: number;
+  activeStudent?: StudentDoc;
+}
+
 export const PassHistoryTab: React.FC<PassHistoryTabProps> = ({
   section,
   students,
   passLogs,
   onReturnStudent,
+  onOpenStudentHistory,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [periodFilter, setPeriodFilter] = useState<'current' | 'all'>('all');
   const [dateFilter, setDateFilter] = useState<string>('');
-  const [viewMode, setViewMode] = useState<'trips' | 'events'>('trips');
+  const [viewMode, setViewMode] = useState<'trips' | 'students' | 'events'>('trips');
   const [nowMs, setNowMs] = useState(() => Date.now());
 
   useEffect(() => {
@@ -162,8 +118,8 @@ export const PassHistoryTab: React.FC<PassHistoryTabProps> = ({
     const completedRows: TripRow[] = passLogs
       .filter((log) => log.action === 'returned')
       .map((log) => {
-        const takenMs = getLogMillis(log);
-        const returnedMs = getReturnedMillis(log);
+        const takenMs = getLogTakenMillis(log);
+        const returnedMs = getLogReturnedMillis(log);
         const secs =
           typeof log.durationSeconds === 'number'
             ? log.durationSeconds
@@ -211,12 +167,116 @@ export const PassHistoryTab: React.FC<PassHistoryTabProps> = ({
       if (queryText && !log.studentName.toLowerCase().includes(queryText)) {
         return false;
       }
-      if (dateFilter && toLocalDateKey(getCreatedMillis(log)) !== dateFilter) {
+      if (dateFilter && toLocalDateKey(getLogCreatedMillis(log)) !== dateFilter) {
         return false;
       }
       return true;
     });
   }, [passLogs, periodFilter, section, queryText, dateFilter]);
+
+  const studentSummaryRows = useMemo<StudentSummaryRow[]>(() => {
+    const map = new Map<string, StudentSummaryRow>();
+
+    // Seed with all students from current roster
+    students.forEach((st) => {
+      const isOut = st.outTimestamp > 0;
+      const activeDur = isOut
+        ? Math.max(0, Math.round((nowMs - st.outTimestamp) / 1000))
+        : 0;
+      map.set(st.id, {
+        studentId: st.id,
+        studentName: st.name,
+        sectionId: st.sectionId,
+        sectionName: section?.name || 'Current Period',
+        passesUsed: st.passesUsed,
+        tripsCount: isOut ? 1 : 0,
+        completedCount: 0,
+        totalSeconds: activeDur,
+        avgSeconds: 0,
+        lastTakenMs: isOut ? st.outTimestamp : null,
+        isActive: isOut,
+        activeDurationSeconds: activeDur,
+        activeStudent: st,
+      });
+    });
+
+    // Aggregate passLogs matching period & date filters
+    passLogs.forEach((log) => {
+      if (periodFilter === 'current' && section && log.sectionId !== section.id) {
+        return;
+      }
+      const eventMs =
+        log.action === 'returned' ? getLogTakenMillis(log) : getLogCreatedMillis(log);
+      if (dateFilter && toLocalDateKey(eventMs) !== dateFilter) {
+        return;
+      }
+
+      let entry = map.get(log.studentId);
+      if (!entry) {
+        entry = {
+          studentId: log.studentId,
+          studentName: log.studentName,
+          sectionId: log.sectionId,
+          sectionName: log.sectionName,
+          passesUsed: log.passesUsedAfter,
+          tripsCount: 0,
+          completedCount: 0,
+          totalSeconds: 0,
+          avgSeconds: 0,
+          lastTakenMs: null,
+          isActive: false,
+          activeDurationSeconds: 0,
+        };
+        map.set(log.studentId, entry);
+      }
+
+      if (log.action === 'returned') {
+        const secs =
+          typeof log.durationSeconds === 'number'
+            ? log.durationSeconds
+            : Math.max(0, Math.round(log.durationMinutes * 60));
+        entry.tripsCount += 1;
+        entry.completedCount += 1;
+        entry.totalSeconds += secs;
+        if (entry.lastTakenMs === null || eventMs > entry.lastTakenMs) {
+          entry.lastTakenMs = eventMs;
+        }
+      } else if (log.action === 'issued') {
+        if (entry.lastTakenMs === null || eventMs > entry.lastTakenMs) {
+          entry.lastTakenMs = eventMs;
+        }
+      }
+    });
+
+    const rows = Array.from(map.values())
+      .map((r) => ({
+        ...r,
+        avgSeconds:
+          r.completedCount > 0
+            ? Math.round(
+                (r.totalSeconds - r.activeDurationSeconds) / r.completedCount
+              )
+            : 0,
+      }))
+      .filter((r) => {
+        if (periodFilter === 'current' && section && r.sectionId !== section.id) {
+          return false;
+        }
+        if (queryText && !r.studentName.toLowerCase().includes(queryText)) {
+          return false;
+        }
+        if (dateFilter && r.lastTakenMs === null) {
+          return false;
+        }
+        return true;
+      });
+
+    return rows.sort((a, b) => {
+      if (a.isActive !== b.isActive) return a.isActive ? -1 : 1;
+      if (b.tripsCount !== a.tripsCount) return b.tripsCount - a.tripsCount;
+      return a.studentName.localeCompare(b.studentName);
+    });
+  }, [students, passLogs, section, periodFilter, dateFilter, queryText, nowMs]);
 
   const completedFiltered = filteredTrips.filter((t) => !t.isActive);
   const totalOutSeconds = filteredTrips.reduce((sum, t) => sum + t.durationSeconds, 0);
@@ -230,16 +290,40 @@ export const PassHistoryTab: React.FC<PassHistoryTabProps> = ({
   const activeCount = filteredTrips.filter((t) => t.isActive).length;
 
   const handleExportHistoryCSV = () => {
-    let csv =
-      'Date Taken,Time Taken,Time Returned,Time Out,Status,Student Name,Period,Pass Balance,Teacher\n';
-    filteredTrips.forEach((row) => {
-      const dateStr = formatDateOnly(row.takenMs);
-      const timeTakenStr = formatTimeOnly(row.takenMs);
-      const timeReturnedStr = row.returnedMs ? formatTimeOnly(row.returnedMs) : 'Still Out';
-      const durStr = formatDurationExact(row.durationSeconds);
-      const statusStr = row.isActive ? 'Currently Out' : 'Returned';
-      csv += `"${dateStr}","${timeTakenStr}","${timeReturnedStr}","${durStr}","${statusStr}","${row.studentName.replace(/"/g, '""')}","${row.sectionName.replace(/"/g, '""')}","${row.passesUsedAfter}/${MAX_QUARTER_PASSES}","${row.actorEmail}"\n`;
-    });
+    let csv = '';
+    if (viewMode === 'students') {
+      csv =
+        'Student Name,Period,Status,Passes Used,Trips Logged,Total Time Out,Avg Time Out,Last Date Taken,Last Time Taken\n';
+      studentSummaryRows.forEach((row) => {
+        const statusStr = row.isActive ? 'Currently Out' : 'In Class';
+        const lastDateStr = row.lastTakenMs ? formatDateOnly(row.lastTakenMs) : '—';
+        const lastTimeStr = row.lastTakenMs ? formatTimeOnly(row.lastTakenMs) : '—';
+        csv += `"${row.studentName.replace(/"/g, '""')}","${row.sectionName.replace(
+          /"/g,
+          '""'
+        )}","${statusStr}","${row.passesUsed}/${MAX_QUARTER_PASSES}",${
+          row.tripsCount
+        },"${formatDurationExact(row.totalSeconds)}","${formatDurationExact(
+          row.avgSeconds
+        )}","${lastDateStr}","${lastTimeStr}"\n`;
+      });
+    } else {
+      csv =
+        'Date Taken,Time Taken,Time Returned,Time Out,Status,Student Name,Period,Pass Balance,Teacher\n';
+      filteredTrips.forEach((row) => {
+        const dateStr = formatDateOnly(row.takenMs);
+        const timeTakenStr = formatTimeOnly(row.takenMs);
+        const timeReturnedStr = row.returnedMs ? formatTimeOnly(row.returnedMs) : 'Still Out';
+        const durStr = formatDurationExact(row.durationSeconds);
+        const statusStr = row.isActive ? 'Currently Out' : 'Returned';
+        csv += `"${dateStr}","${timeTakenStr}","${timeReturnedStr}","${durStr}","${statusStr}","${row.studentName.replace(
+          /"/g,
+          '""'
+        )}","${row.sectionName.replace(/"/g, '""')}","${
+          row.passesUsedAfter
+        }/${MAX_QUARTER_PASSES}","${row.actorEmail}"\n`;
+      });
+    }
 
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
@@ -248,6 +332,26 @@ export const PassHistoryTab: React.FC<PassHistoryTabProps> = ({
     a.download = `Tiger_Pass_History_${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
+  };
+
+  const openStudentById = (
+    id: string,
+    name: string,
+    sectionId: string,
+    sectionName: string,
+    passesUsed?: number,
+    activeStudent?: StudentDoc
+  ) => {
+    const matchedLive = activeStudent || students.find((s) => s.id === id);
+    onOpenStudentHistory({
+      id,
+      name,
+      sectionId,
+      sectionName,
+      passesUsed: matchedLive?.passesUsed ?? passesUsed,
+      outTimestamp: matchedLive?.outTimestamp,
+      liveStudent: matchedLive,
+    });
   };
 
   return (
@@ -261,14 +365,18 @@ export const PassHistoryTab: React.FC<PassHistoryTabProps> = ({
               Hall Pass History &amp; Time Out Log
             </h2>
             <p className="text-xs text-slate-400 mt-0.5">
-              Tracks exact date taken, departure &amp; return timestamps, and total time each student spent out of class.
+              Tracks exact date taken, departure &amp; return timestamps, total time out, and individual student pass history.
             </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={handleExportHistoryCSV}
-              disabled={filteredTrips.length === 0}
+              disabled={
+                viewMode === 'students'
+                  ? studentSummaryRows.length === 0
+                  : filteredTrips.length === 0
+              }
               className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-amber-300 font-bold text-xs rounded-xl border border-slate-700 flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
             >
               <Download className="w-3.5 h-3.5" />
@@ -341,6 +449,17 @@ export const PassHistoryTab: React.FC<PassHistoryTabProps> = ({
               }`}
             >
               Pass Trips
+            </button>
+            <button
+              onClick={() => setViewMode('students')}
+              className={`px-3 py-1 rounded-lg font-semibold transition-colors flex items-center gap-1 cursor-pointer ${
+                viewMode === 'students'
+                  ? 'bg-amber-400 text-black'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Users className="w-3.5 h-3.5" />
+              By Student
             </button>
             <button
               onClick={() => setViewMode('events')}
@@ -419,7 +538,23 @@ export const PassHistoryTab: React.FC<PassHistoryTabProps> = ({
                         }
                       >
                         <td className="py-3 pr-3 font-bold text-white whitespace-nowrap">
-                          {row.studentName}
+                          <button
+                            onClick={() =>
+                              openStudentById(
+                                row.studentId,
+                                row.studentName,
+                                row.sectionId,
+                                row.sectionName,
+                                row.passesUsedAfter,
+                                row.activeStudent
+                              )
+                            }
+                            className="hover:text-amber-300 hover:underline inline-flex items-center gap-1.5 cursor-pointer text-left"
+                            title={`View individual history for ${row.studentName}`}
+                          >
+                            <span>{row.studentName}</span>
+                            <History className="w-3 h-3 text-slate-500" />
+                          </button>
                         </td>
                         <td className="py-3 px-3 text-slate-300 whitespace-nowrap">
                           {row.sectionName}
@@ -459,21 +594,131 @@ export const PassHistoryTab: React.FC<PassHistoryTabProps> = ({
                           {row.passesUsedAfter}/{MAX_QUARTER_PASSES}
                         </td>
                         <td className="py-3 pl-3 text-right whitespace-nowrap">
-                          {row.isActive && row.activeStudent ? (
+                          <div className="inline-flex items-center gap-2">
+                            {row.isActive && row.activeStudent ? (
+                              <button
+                                onClick={() => void onReturnStudent(row.activeStudent!)}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-500 hover:bg-emerald-400 text-black font-black text-[11px] rounded-lg cursor-pointer"
+                              >
+                                <CheckCircle2 className="w-3 h-3" />
+                                Return
+                              </button>
+                            ) : (
+                              <span className="text-slate-400">{row.actorEmail}</span>
+                            )}
                             <button
-                              onClick={() => onReturnStudent(row.activeStudent!)}
-                              className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-500 hover:bg-emerald-400 text-black font-black text-[11px] rounded-lg cursor-pointer"
+                              onClick={() =>
+                                openStudentById(
+                                  row.studentId,
+                                  row.studentName,
+                                  row.sectionId,
+                                  row.sectionName,
+                                  row.passesUsedAfter,
+                                  row.activeStudent
+                                )
+                              }
+                              className="inline-flex items-center gap-1 px-2 py-1 bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold text-[11px] rounded-lg border border-slate-700 cursor-pointer"
+                              title={`View ${row.studentName}'s history`}
                             >
-                              <CheckCircle2 className="w-3 h-3" />
-                              Return
+                              <History className="w-3 h-3" />
+                              History
                             </button>
-                          ) : (
-                            <span className="text-slate-400">{row.actorEmail}</span>
-                          )}
+                          </div>
                         </td>
                       </tr>
                     );
                   })}
+                </tbody>
+              </table>
+            </div>
+          )
+        ) : viewMode === 'students' ? (
+          studentSummaryRows.length === 0 ? (
+            <div className="py-10 text-center text-xs text-slate-400">
+              No students match your filters.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="text-slate-400 border-b border-slate-800">
+                  <tr>
+                    <th className="py-2.5 pr-3 font-semibold">Student</th>
+                    <th className="py-2.5 px-3 font-semibold">Period</th>
+                    <th className="py-2.5 px-3 font-semibold">Status</th>
+                    <th className="py-2.5 px-3 font-semibold text-right">Passes Used</th>
+                    <th className="py-2.5 px-3 font-semibold text-right">Trips</th>
+                    <th className="py-2.5 px-3 font-semibold text-right">Total Time Out</th>
+                    <th className="py-2.5 px-3 font-semibold text-right">Avg Time Out</th>
+                    <th className="py-2.5 px-3 font-semibold">Last Pass Taken</th>
+                    <th className="py-2.5 pl-3 font-semibold text-right">Individual Log</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60">
+                  {studentSummaryRows.map((row) => (
+                    <tr
+                      key={`${row.sectionId}_${row.studentId}`}
+                      className={
+                        row.isActive
+                          ? 'bg-amber-950/20 hover:bg-amber-950/30'
+                          : 'hover:bg-slate-950/60'
+                      }
+                    >
+                      <td className="py-3 pr-3 font-bold text-white whitespace-nowrap">
+                        {row.studentName}
+                      </td>
+                      <td className="py-3 px-3 text-slate-300 whitespace-nowrap">
+                        {row.sectionName}
+                      </td>
+                      <td className="py-3 px-3 whitespace-nowrap">
+                        {row.isActive ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-400 text-black font-black text-[11px] rounded-md font-mono-tabular">
+                            Out {formatDurationExact(row.activeDurationSeconds)}
+                          </span>
+                        ) : (
+                          <span className="text-slate-400 font-semibold">In Class</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-3 text-right font-mono-tabular text-slate-200 whitespace-nowrap">
+                        {row.passesUsed}/{MAX_QUARTER_PASSES}
+                      </td>
+                      <td className="py-3 px-3 text-right font-mono-tabular font-bold text-white whitespace-nowrap">
+                        {row.tripsCount}
+                      </td>
+                      <td className="py-3 px-3 text-right font-mono-tabular font-extrabold text-amber-300 whitespace-nowrap">
+                        {formatDurationExact(row.totalSeconds)}
+                      </td>
+                      <td className="py-3 px-3 text-right font-mono-tabular text-emerald-400 whitespace-nowrap">
+                        {row.completedCount > 0
+                          ? formatDurationExact(row.avgSeconds)
+                          : '—'}
+                      </td>
+                      <td className="py-3 px-3 font-mono-tabular text-slate-300 whitespace-nowrap">
+                        {row.lastTakenMs
+                          ? `${formatDateOnly(row.lastTakenMs)} · ${formatTimeOnly(
+                              row.lastTakenMs
+                            )}`
+                          : 'No passes yet'}
+                      </td>
+                      <td className="py-3 pl-3 text-right whitespace-nowrap">
+                        <button
+                          onClick={() =>
+                            openStudentById(
+                              row.studentId,
+                              row.studentName,
+                              row.sectionId,
+                              row.sectionName,
+                              row.passesUsed,
+                              row.activeStudent
+                            )
+                          }
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-amber-400 hover:text-black text-amber-300 font-extrabold text-[11px] rounded-lg border border-amber-500/30 transition-colors cursor-pointer"
+                        >
+                          <History className="w-3.5 h-3.5" />
+                          View History
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
@@ -494,12 +739,12 @@ export const PassHistoryTab: React.FC<PassHistoryTabProps> = ({
                   <th className="py-2.5 px-3 font-semibold">Time</th>
                   <th className="py-2.5 px-3 font-semibold text-right">Time Out</th>
                   <th className="py-2.5 px-3 font-semibold text-right">Pass Balance</th>
-                  <th className="py-2.5 pl-3 font-semibold text-right">Teacher</th>
+                  <th className="py-2.5 pl-3 font-semibold text-right">Teacher / History</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60">
                 {filteredEvents.map((log) => {
-                  const eventMs = getCreatedMillis(log);
+                  const eventMs = getLogCreatedMillis(log);
                   const secs =
                     typeof log.durationSeconds === 'number'
                       ? log.durationSeconds
@@ -507,7 +752,21 @@ export const PassHistoryTab: React.FC<PassHistoryTabProps> = ({
                   return (
                     <tr key={log.id} className="hover:bg-slate-950/60">
                       <td className="py-2.5 pr-3 font-bold text-white whitespace-nowrap">
-                        {log.studentName}
+                        <button
+                          onClick={() =>
+                            openStudentById(
+                              log.studentId,
+                              log.studentName,
+                              log.sectionId,
+                              log.sectionName,
+                              log.passesUsedAfter
+                            )
+                          }
+                          className="hover:text-amber-300 hover:underline inline-flex items-center gap-1.5 cursor-pointer text-left"
+                        >
+                          <span>{log.studentName}</span>
+                          <History className="w-3 h-3 text-slate-500" />
+                        </button>
                       </td>
                       <td className="py-2.5 px-3 text-slate-300 whitespace-nowrap">
                         {log.sectionName}
@@ -542,8 +801,25 @@ export const PassHistoryTab: React.FC<PassHistoryTabProps> = ({
                       <td className="py-2.5 px-3 text-right font-mono-tabular text-slate-300 whitespace-nowrap">
                         {log.passesUsedAfter}/{MAX_QUARTER_PASSES}
                       </td>
-                      <td className="py-2.5 pl-3 text-right text-slate-400 whitespace-nowrap">
-                        {log.actorEmail}
+                      <td className="py-2.5 pl-3 text-right whitespace-nowrap">
+                        <div className="inline-flex items-center gap-2">
+                          <span className="text-slate-400">{log.actorEmail}</span>
+                          <button
+                            onClick={() =>
+                              openStudentById(
+                                log.studentId,
+                                log.studentName,
+                                log.sectionId,
+                                log.sectionName,
+                                log.passesUsedAfter
+                              )
+                            }
+                            className="inline-flex items-center gap-1 px-2 py-1 bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold text-[11px] rounded-lg border border-slate-700 cursor-pointer"
+                          >
+                            <History className="w-3 h-3" />
+                            History
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
