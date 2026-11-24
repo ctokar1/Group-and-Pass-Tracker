@@ -27,6 +27,7 @@ interface FloorPlanCanvasProps {
   section: ClassSectionDoc | undefined;
   students: StudentDoc[];
   projectorMode?: boolean;
+  textScale?: number;
   activeHighlightId?: string | null;
   spotlightActive?: boolean;
   isSpotlighting?: boolean;
@@ -36,6 +37,7 @@ interface FloorPlanCanvasProps {
   onRemoveStudentFromGroup?: (groupId: string, studentId: string) => void;
   onOpenQuickMove: (studentId: string, groupId: string) => void;
   onToggleLockStudent: (groupId: string, studentId: string) => void;
+  onRemoveStudentRole?: (groupId: string, studentId: string) => void;
   onAdjustGroupPoints: (groupId: string, delta: number) => void;
   onRemoveAbsentFromGroups?: (student: StudentDoc) => Promise<void>;
 }
@@ -51,6 +53,7 @@ export const FloorPlanCanvas: React.FC<FloorPlanCanvasProps> = ({
   section,
   students,
   projectorMode = false,
+  textScale = 2,
   activeHighlightId = null,
   spotlightActive = false,
   isSpotlighting = false,
@@ -60,10 +63,19 @@ export const FloorPlanCanvas: React.FC<FloorPlanCanvasProps> = ({
   onRemoveStudentFromGroup,
   onOpenQuickMove,
   onToggleLockStudent,
+  onRemoveStudentRole,
   onAdjustGroupPoints,
   onRemoveAbsentFromGroups,
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const [canvasBox, setCanvasBox] = useState<{ width: number; height: number }>(() =>
+    typeof window === 'undefined'
+      ? { width: 1100, height: 640 }
+      : {
+          width: Math.max(320, window.innerWidth - 48),
+          height: Math.max(300, window.innerHeight - 160),
+        }
+  );
   const [draftPlan, setDraftPlan] = useState<FloorPlanLayout>(() =>
     sanitizeFloorPlan(section?.floorPlan)
   );
@@ -76,6 +88,34 @@ export const FloorPlanCanvas: React.FC<FloorPlanCanvasProps> = ({
     origY: number;
   } | null>(null);
   const latestPlanRef = useRef<FloorPlanLayout>(draftPlan);
+
+  useEffect(() => {
+    const measure = () => {
+      const el = containerRef.current;
+      if (el && el.clientWidth > 0 && el.clientHeight > 0) {
+        const nextW = el.clientWidth;
+        const nextH = el.clientHeight;
+        setCanvasBox((prev) =>
+          Math.abs(prev.width - nextW) <= 1 && Math.abs(prev.height - nextH) <= 1
+            ? prev
+            : { width: nextW, height: nextH }
+        );
+      }
+    };
+    measure();
+    const rafId = window.requestAnimationFrame(measure);
+    let ro: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined' && containerRef.current) {
+      ro = new ResizeObserver(measure);
+      ro.observe(containerRef.current);
+    }
+    window.addEventListener('resize', measure);
+    return () => {
+      window.cancelAnimationFrame(rafId);
+      ro?.disconnect();
+      window.removeEventListener('resize', measure);
+    };
+  }, [projectorMode]);
 
   useEffect(() => {
     if (!draggingKey) {
@@ -189,6 +229,58 @@ export const FloorPlanCanvas: React.FC<FloorPlanCanvasProps> = ({
   const isVerticalBoard =
     draftPlan.whiteboardEdge === 'left' || draftPlan.whiteboardEdge === 'right';
 
+  const zoomFactorMap: Record<number, number> = {
+    1: 0.85,
+    2: 1.0,
+    3: 1.2,
+    4: 1.45,
+    5: 1.75,
+  };
+  const zoomFactor = projectorMode ? zoomFactorMap[Math.max(1, Math.min(5, textScale))] ?? 1.0 : 1.0;
+  const hasRoles = groups.some((g) => g.roles && Object.keys(g.roles).length > 0);
+  const maxStudents = Math.max(
+    ...groups.map((g) => g.studentIds.filter((sid) => studentMap.has(sid)).length),
+    1
+  );
+
+  const widthScale = Math.max(0.62, Math.min(1.45, canvasBox.width / 1180));
+  const heightScale = Math.max(0.55, Math.min(1.45, canvasBox.height / 660));
+  const fitScale = Math.min(widthScale, heightScale);
+
+  const cardWidthPx = projectorMode
+    ? Math.max(185, Math.min(430, Math.round(260 * widthScale * Math.min(1.35, zoomFactor))))
+    : Math.max(210, Math.min(270, Math.round(245 * widthScale)));
+  const headerFontPx = projectorMode
+    ? Math.max(12, Math.min(24, Math.round(16 * fitScale * zoomFactor)))
+    : 13;
+  const nameFontPx = projectorMode
+    ? Math.max(
+        11,
+        Math.min(
+          34,
+          Math.round(
+            18 *
+              fitScale *
+              zoomFactor *
+              (hasRoles ? 0.84 : 1) *
+              (maxStudents >= 5 ? 0.86 : 1) *
+              10
+          ) / 10
+        )
+      )
+    : 12;
+  const roleFontPx = projectorMode
+    ? Math.max(9, Math.min(16, Math.round(nameFontPx * 0.62)))
+    : 10;
+  const pointsFontPx = projectorMode
+    ? Math.max(10, Math.min(16, Math.round(headerFontPx * 0.78)))
+    : 11;
+  const listMaxHeightPx = projectorMode
+    ? Math.max(90, Math.round(canvasBox.height * (zoomFactor > 1.05 ? 0.44 : 0.36)))
+    : 185;
+  const mapLabelClass =
+    projectorMode && zoomFactor >= 1.4 ? 'text-xs sm:text-sm' : 'text-[11px]';
+
   return (
     <div className={projectorMode ? 'flex-1 flex flex-col min-h-0 gap-2' : 'space-y-3'}>
       {/* Floor Plan Controls Bar */}
@@ -268,7 +360,7 @@ export const FloorPlanCanvas: React.FC<FloorPlanCanvasProps> = ({
           className={`absolute z-10 rounded-lg bg-slate-800/95 border border-amber-400/50 flex items-center justify-center shadow-lg pointer-events-none ${whiteboardClasses}`}
         >
           <span
-            className={`text-[11px] font-black uppercase tracking-widest text-amber-300 whitespace-nowrap ${
+            className={`${mapLabelClass} font-black uppercase tracking-widest text-amber-300 whitespace-nowrap ${
               isVerticalBoard ? '-rotate-90' : ''
             }`}
           >
@@ -291,7 +383,7 @@ export const FloorPlanCanvas: React.FC<FloorPlanCanvasProps> = ({
           title="Drag Teacher Desk anywhere in room"
         >
           <GripVertical className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-          <span className="text-[11px] font-black uppercase tracking-wider text-amber-300 whitespace-nowrap">
+          <span className={`${mapLabelClass} font-black uppercase tracking-wider text-amber-300 whitespace-nowrap`}>
             Teacher Desk
           </span>
         </div>
@@ -328,13 +420,14 @@ export const FloorPlanCanvas: React.FC<FloorPlanCanvasProps> = ({
                 style={{
                   left: `${pos.x}%`,
                   top: `${pos.y}%`,
+                  width: `${cardWidthPx}px`,
                 }}
-                className={`absolute -translate-x-1/2 -translate-y-1/2 w-[235px] sm:w-[265px] rounded-2xl border-2 ${colorDef.border} bg-slate-900/95 shadow-2xl p-2.5 flex flex-col gap-2 transition-shadow ${
+                className={`absolute -translate-x-1/2 -translate-y-1/2 rounded-2xl border-2 ${colorDef.border} bg-slate-900/95 shadow-2xl p-2 sm:p-2.5 flex flex-col gap-1.5 transition-shadow ${
                   draggingKey === grp.id ? 'z-30 ring-4 ring-amber-400/50' : 'z-20'
                 }`}
               >
                 {/* Table Header (Pointer Drag Handle + Points) */}
-                <div className="flex items-center justify-between gap-1.5 border-b border-slate-800 pb-1.5">
+                <div className="flex items-center justify-between gap-1.5 border-b border-slate-800 pb-1.5 shrink-0">
                   <div
                     onPointerDown={(e) => startDragItem(e, grp.id, pos.x, pos.y)}
                     className="flex items-center gap-1.5 min-w-0 flex-1 cursor-grab active:cursor-grabbing"
@@ -342,7 +435,10 @@ export const FloorPlanCanvas: React.FC<FloorPlanCanvasProps> = ({
                   >
                     <GripVertical className="w-3.5 h-3.5 text-slate-500 shrink-0" />
                     <span className={`w-2.5 h-2.5 rounded-full ${colorDef.color} shrink-0`} />
-                    <h4 className="font-black text-xs sm:text-sm text-white truncate">
+                    <h4
+                      style={{ fontSize: `${headerFontPx}px`, lineHeight: 1.15 }}
+                      className="font-black text-white truncate"
+                    >
                       {grp.name || colorDef.name}
                     </h4>
                   </div>
@@ -360,7 +456,8 @@ export const FloorPlanCanvas: React.FC<FloorPlanCanvasProps> = ({
                         <Minus className="w-3 h-3" />
                       </button>
                       <span
-                        className={`text-[11px] font-black font-mono-tabular px-1 ${
+                        style={{ fontSize: `${pointsFontPx}px` }}
+                        className={`font-black font-mono-tabular px-1 ${
                           points > 0
                             ? 'text-emerald-400'
                             : points < 0
@@ -385,7 +482,10 @@ export const FloorPlanCanvas: React.FC<FloorPlanCanvasProps> = ({
                 </div>
 
                 {/* Student Chips */}
-                <div className="space-y-1 max-h-[175px] overflow-y-auto pr-0.5">
+                <div
+                  style={{ maxHeight: `${listMaxHeightPx}px` }}
+                  className="flex flex-col gap-1 overflow-y-auto pr-0.5 min-h-0"
+                >
                   {memberStudents.length === 0 ? (
                     <div className="py-3 text-center border border-dashed border-slate-800 rounded-xl text-[11px] text-slate-500 font-semibold">
                       Drop student here
@@ -401,7 +501,7 @@ export const FloorPlanCanvas: React.FC<FloorPlanCanvasProps> = ({
                           key={st.id}
                           draggable
                           onDragStart={(e) => handleStudentDragStart(e, st.id, grp.id)}
-                          className={`rounded-xl px-2 py-1.5 flex items-center justify-between gap-1.5 cursor-grab active:cursor-grabbing transition-all ${
+                          className={`rounded-xl shrink-0 px-2 py-1 flex items-center justify-between gap-1.5 cursor-grab active:cursor-grabbing transition-all ${
                             isHighlighted
                               ? 'bg-amber-400 text-black border border-yellow-100 ring-2 ring-amber-300 shadow-lg'
                               : isDimmed
@@ -410,34 +510,54 @@ export const FloorPlanCanvas: React.FC<FloorPlanCanvasProps> = ({
                           }`}
                         >
                           <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-1 min-w-0">
+                            <div className="flex items-center gap-1.5 min-w-0">
                               {isHighlighted && (
-                                <span className="text-xs shrink-0">
+                                <span className="text-sm shrink-0">
                                   {isSpotlighting ? '🎯' : '🏆'}
                                 </span>
                               )}
                               {isLocked && (
                                 <Lock
-                                  className={`w-3 h-3 shrink-0 ${
+                                  className={`w-3.5 h-3.5 shrink-0 ${
                                     isHighlighted ? 'text-black' : 'text-amber-400'
                                   }`}
                                 />
                               )}
                               <span
-                                className={`font-extrabold truncate ${
-                                  projectorMode ? 'text-xs sm:text-sm' : 'text-xs'
-                                } ${isHighlighted ? 'text-black' : 'text-white'}`}
+                                style={{ fontSize: `${nameFontPx}px`, lineHeight: 1.16 }}
+                                className={`font-extrabold break-words whitespace-normal min-w-0 ${
+                                  isHighlighted ? 'text-black' : 'text-white'
+                                }`}
                               >
                                 {st.name}
                               </span>
                             </div>
                             {role && (
                               <span
-                                className={`text-[10px] font-bold block truncate ${
+                                style={{ fontSize: `${roleFontPx}px`, lineHeight: 1.2 }}
+                                className={`inline-flex items-center gap-1 font-bold max-w-full ${
                                   isHighlighted ? 'text-black/75' : 'text-amber-300/90'
                                 }`}
                               >
-                                {role}
+                                <span className="truncate">{role}</span>
+                                {onRemoveStudentRole && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      onRemoveStudentRole(grp.id, st.id);
+                                    }}
+                                    className={`no-print cursor-pointer shrink-0 ${
+                                      isHighlighted
+                                        ? 'text-black/60 hover:text-black'
+                                        : 'text-slate-500 hover:text-rose-400'
+                                    }`}
+                                    title={`Remove ${role} role`}
+                                    aria-label={`Remove ${role} role from ${st.name}`}
+                                  >
+                                    <X className="w-2.5 h-2.5" />
+                                  </button>
+                                )}
                               </span>
                             )}
                           </div>

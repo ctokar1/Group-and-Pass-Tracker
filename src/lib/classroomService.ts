@@ -7,6 +7,7 @@ import {
   onSnapshot,
   query,
   serverTimestamp,
+  setDoc,
   updateDoc,
   where,
   writeBatch,
@@ -196,7 +197,8 @@ export function sanitizeFloorPlan(raw?: Partial<FloorPlanLayout> | null): FloorP
         };
       });
   }
-  return { whiteboardEdge, teacherDesk, tables };
+  const limitedTables = Object.fromEntries(Object.entries(tables).slice(0, 12));
+  return { whiteboardEdge, teacherDesk, tables: limitedTables };
 }
 
 function sanitizeBellSchedules(raw: unknown): BellScheduleProfile[] {
@@ -279,7 +281,11 @@ export function sanitizeWorkspaceSettings(raw?: Partial<AppSettings> | null): Ap
     maxConcurrentPasses: Number.isFinite(maxConcurrentNum)
       ? Math.max(0, Math.min(30, maxConcurrentNum))
       : DEFAULT_APP_SETTINGS.maxConcurrentPasses,
-    autoRotateRoles: s.autoRotateRoles !== undefined ? Boolean(s.autoRotateRoles) : DEFAULT_APP_SETTINGS.autoRotateRoles,
+    autoRotateRoles:
+      Boolean(s.rolesOptInDefaulted) && s.autoRotateRoles !== undefined
+        ? Boolean(s.autoRotateRoles)
+        : DEFAULT_APP_SETTINGS.autoRotateRoles,
+    rolesOptInDefaulted: true,
     avoidRecentPairs: s.avoidRecentPairs !== undefined ? Boolean(s.avoidRecentPairs) : DEFAULT_APP_SETTINGS.avoidRecentPairs,
     deadZoneEnabled: Boolean(s.deadZoneEnabled ?? DEFAULT_APP_SETTINGS.deadZoneEnabled),
     deadZoneStartMinutes: Number.isFinite(dzStart) ? Math.max(0, Math.min(30, dzStart)) : DEFAULT_APP_SETTINGS.deadZoneStartMinutes,
@@ -324,10 +330,13 @@ function sanitizeGroups(groups: GroupEntry[]): GroupEntry[] {
     return {
       id: sanitizeId(g.id, `grp_${idx + 1}`),
       colorIndex: Math.max(0, Math.min(7, Math.round(Number(g.colorIndex) || 0))),
-      name: clampText(
-        g.name || COLOR_DEFINITIONS[idx % COLOR_DEFINITIONS.length].name,
-        LIMITS.GROUP_NAME_MAX
-      ),
+      name:
+        clampText(
+          typeof g.name === 'string' && g.name.trim()
+            ? g.name
+            : COLOR_DEFINITIONS[idx % COLOR_DEFINITIONS.length].name,
+          LIMITS.GROUP_NAME_MAX
+        ) || COLOR_DEFINITIONS[idx % COLOR_DEFINITIONS.length].name,
       studentIds: cleanStudentIds,
       lockedStudentIds: cleanLocked,
       roles: cleanRoles,
@@ -369,6 +378,340 @@ function isPresetSkipped(preset: PresetClassSeed): boolean {
     typeof window !== 'undefined' &&
     window.localStorage.getItem(preset.skipKey) === '1'
   );
+}
+
+const VALID_SECTION_KEYS = new Set([
+  'id',
+  'workspaceId',
+  'name',
+  'order',
+  'quickSize',
+  'quickCount',
+  'forceExactCount',
+  'groups',
+  'passQueue',
+  'floorPlan',
+  'keepApartPairs',
+  'pairTogetherPairs',
+  'recentPairKeys',
+  'spotlightCalledIds',
+  'spotlightDeckMode',
+  'createdBy',
+  'updatedBy',
+  'createdAt',
+  'updatedAt',
+]);
+
+function isValidFloorPlanShape(fp: unknown): boolean {
+  if (!fp || typeof fp !== 'object') return false;
+  const obj = fp as Record<string, unknown>;
+  const keys = Object.keys(obj);
+  if (
+    !keys.includes('whiteboardEdge') ||
+    !keys.includes('teacherDesk') ||
+    !keys.includes('tables') ||
+    keys.some((k) => k !== 'whiteboardEdge' && k !== 'teacherDesk' && k !== 'tables')
+  ) {
+    return false;
+  }
+  if (!VALID_WHITEBOARD_EDGES.includes(obj.whiteboardEdge as WhiteboardEdge)) return false;
+  const td = obj.teacherDesk as Record<string, unknown> | null;
+  if (!td || typeof td !== 'object') return false;
+  const tdKeys = Object.keys(td);
+  if (
+    tdKeys.length !== 2 ||
+    typeof td.x !== 'number' ||
+    typeof td.y !== 'number' ||
+    td.x < 0 ||
+    td.x > 100 ||
+    td.y < 0 ||
+    td.y > 100
+  ) {
+    return false;
+  }
+  const tables = obj.tables as Record<string, unknown> | null;
+  if (!tables || typeof tables !== 'object' || Object.keys(tables).length > 12) return false;
+  return true;
+}
+
+function isFirestoreTimestamp(val: unknown): boolean {
+  if (!val || typeof val !== 'object') return false;
+  const obj = val as Record<string, unknown>;
+  return (
+    typeof obj.toMillis === 'function' ||
+    (typeof obj.seconds === 'number' && typeof obj.nanoseconds === 'number')
+  );
+}
+
+function sectionNeedsHeal(raw: Record<string, unknown>, sectionId: string): boolean {
+  const keys = Object.keys(raw);
+  if (keys.some((k) => !VALID_SECTION_KEYS.has(k))) return true;
+  const required = [
+    'id',
+    'workspaceId',
+    'name',
+    'order',
+    'quickSize',
+    'quickCount',
+    'forceExactCount',
+    'groups',
+    'createdBy',
+    'updatedBy',
+    'createdAt',
+    'updatedAt',
+  ];
+  if (required.some((k) => raw[k] === undefined || raw[k] === null)) return true;
+  if (raw.id !== sectionId || raw.workspaceId !== WORKSPACE_ID) return true;
+  if (typeof raw.name !== 'string' || raw.name.length < 1 || raw.name.length > 120) return true;
+  if (typeof raw.order !== 'number' || !Number.isFinite(raw.order) || raw.order < 0 || raw.order > 10000) {
+    return true;
+  }
+  if (
+    typeof raw.quickSize !== 'number' ||
+    !Number.isFinite(raw.quickSize) ||
+    raw.quickSize < 0 ||
+    raw.quickSize > 12
+  ) {
+    return true;
+  }
+  if (
+    typeof raw.quickCount !== 'number' ||
+    !Number.isFinite(raw.quickCount) ||
+    raw.quickCount < 0 ||
+    raw.quickCount > 8
+  ) {
+    return true;
+  }
+  if (typeof raw.forceExactCount !== 'boolean') return true;
+  if (typeof raw.createdBy !== 'string' || raw.createdBy.length < 3 || raw.createdBy.length > 256) {
+    return true;
+  }
+  if (typeof raw.updatedBy !== 'string' || raw.updatedBy.length < 3 || raw.updatedBy.length > 256) {
+    return true;
+  }
+  if (!isFirestoreTimestamp(raw.createdAt) || !isFirestoreTimestamp(raw.updatedAt)) return true;
+  if (!Array.isArray(raw.groups) || raw.groups.length > LIMITS.MAX_GROUPS) return true;
+  for (const grp of raw.groups) {
+    if (!grp || typeof grp !== 'object') return true;
+    const g = grp as Record<string, unknown>;
+    const gKeys = Object.keys(g);
+    const allowedGroupKeys = new Set([
+      'id',
+      'colorIndex',
+      'name',
+      'studentIds',
+      'lockedStudentIds',
+      'roles',
+      'points',
+    ]);
+    if (gKeys.some((k) => !allowedGroupKeys.has(k))) return true;
+    if (typeof g.id !== 'string' || !LIMITS.ID_PATTERN.test(g.id)) return true;
+    if (typeof g.colorIndex !== 'number' || !Number.isFinite(g.colorIndex) || g.colorIndex < 0 || g.colorIndex > 7) {
+      return true;
+    }
+    if (typeof g.name !== 'string' || g.name.length < 1 || g.name.length > 60) return true;
+    if (!Array.isArray(g.studentIds) || g.studentIds.length > 100) return true;
+    if (g.studentIds.length > 0 && (typeof g.studentIds[0] !== 'string' || !LIMITS.ID_PATTERN.test(g.studentIds[0]))) {
+      return true;
+    }
+    if ('lockedStudentIds' in g) {
+      if (
+        !Array.isArray(g.lockedStudentIds) ||
+        g.lockedStudentIds.length > 100 ||
+        (g.lockedStudentIds.length > 0 &&
+          (typeof g.lockedStudentIds[0] !== 'string' || !LIMITS.ID_PATTERN.test(g.lockedStudentIds[0])))
+      ) {
+        return true;
+      }
+    }
+    if ('roles' in g) {
+      if (!g.roles || typeof g.roles !== 'object' || Array.isArray(g.roles) || Object.keys(g.roles).length > 100) {
+        return true;
+      }
+    }
+    if ('points' in g) {
+      if (typeof g.points !== 'number' || !Number.isFinite(g.points) || g.points < -999 || g.points > 999) {
+        return true;
+      }
+    }
+  }
+  if ('passQueue' in raw) {
+    if (
+      !Array.isArray(raw.passQueue) ||
+      raw.passQueue.length > 100 ||
+      (raw.passQueue.length > 0 && (typeof raw.passQueue[0] !== 'string' || !LIMITS.ID_PATTERN.test(raw.passQueue[0])))
+    ) {
+      return true;
+    }
+  }
+  if ('floorPlan' in raw && !isValidFloorPlanShape(raw.floorPlan)) return true;
+  if ('keepApartPairs' in raw) {
+    if (
+      !Array.isArray(raw.keepApartPairs) ||
+      raw.keepApartPairs.length > 50 ||
+      (raw.keepApartPairs.length > 0 &&
+        (typeof raw.keepApartPairs[0] !== 'string' || raw.keepApartPairs[0].length > 260))
+    ) {
+      return true;
+    }
+  }
+  if ('pairTogetherPairs' in raw) {
+    if (
+      !Array.isArray(raw.pairTogetherPairs) ||
+      raw.pairTogetherPairs.length > 50 ||
+      (raw.pairTogetherPairs.length > 0 &&
+        (typeof raw.pairTogetherPairs[0] !== 'string' || raw.pairTogetherPairs[0].length > 260))
+    ) {
+      return true;
+    }
+  }
+  if ('recentPairKeys' in raw) {
+    if (
+      !Array.isArray(raw.recentPairKeys) ||
+      raw.recentPairKeys.length > LIMITS.MAX_RECENT_PAIRS ||
+      (raw.recentPairKeys.length > 0 &&
+        (typeof raw.recentPairKeys[0] !== 'string' || raw.recentPairKeys[0].length > 260))
+    ) {
+      return true;
+    }
+  }
+  if (
+    'spotlightCalledIds' in raw &&
+    (!Array.isArray(raw.spotlightCalledIds) ||
+      raw.spotlightCalledIds.length > 150 ||
+      (raw.spotlightCalledIds.length > 0 &&
+        (typeof raw.spotlightCalledIds[0] !== 'string' ||
+          !LIMITS.ID_PATTERN.test(raw.spotlightCalledIds[0]))))
+  ) {
+    return true;
+  }
+  if ('spotlightDeckMode' in raw && typeof raw.spotlightDeckMode !== 'boolean') {
+    return true;
+  }
+  return false;
+}
+
+function buildCleanSectionPayload(
+  raw: Record<string, unknown>,
+  sectionId: string,
+  fallbackOrder: number,
+  email: string,
+  forceFreshCreate: boolean = false
+): Record<string, unknown> {
+  const cleanId = sanitizeId(sectionId, 'sec');
+  const rawName = typeof raw.name === 'string' ? raw.name : 'Class Period';
+  const rawOrder = Math.round(Number(raw.order ?? fallbackOrder));
+  const rawQuickSize = Math.round(Number(raw.quickSize ?? 4));
+  const rawQuickCount = Math.round(Number(raw.quickCount ?? 0));
+
+  const validExistingCreator =
+    !forceFreshCreate &&
+    typeof raw.createdBy === 'string' &&
+    raw.createdBy.trim().length >= 3 &&
+    raw.createdBy.length <= LIMITS.EMAIL_MAX
+      ? raw.createdBy
+      : email;
+
+  const validExistingCreatedAt =
+    !forceFreshCreate && isFirestoreTimestamp(raw.createdAt)
+      ? raw.createdAt
+      : serverTimestamp();
+
+  const out: Record<string, unknown> = {
+    id: cleanId,
+    workspaceId: WORKSPACE_ID,
+    name: clampText(rawName, LIMITS.SECTION_NAME_MAX) || 'Class Period',
+    order: Number.isFinite(rawOrder) ? Math.max(0, Math.min(10000, rawOrder)) : fallbackOrder,
+    quickSize: Number.isFinite(rawQuickSize) ? Math.max(0, Math.min(12, rawQuickSize)) : 4,
+    quickCount: Number.isFinite(rawQuickCount) ? Math.max(0, Math.min(8, rawQuickCount)) : 0,
+    forceExactCount: Boolean(raw.forceExactCount ?? false),
+    groups: Array.isArray(raw.groups) ? sanitizeGroups(raw.groups as GroupEntry[]) : [],
+    createdBy: validExistingCreator,
+    updatedBy: email,
+    createdAt: validExistingCreatedAt,
+    updatedAt: serverTimestamp(),
+  };
+
+  if (Array.isArray(raw.passQueue)) {
+    out.passQueue = sanitizePassQueue(raw.passQueue as string[]);
+  }
+  if (raw.floorPlan && typeof raw.floorPlan === 'object') {
+    out.floorPlan = sanitizeFloorPlan(raw.floorPlan as Partial<FloorPlanLayout>);
+  }
+  if (Array.isArray(raw.keepApartPairs)) {
+    out.keepApartPairs = sanitizePairKeyList(raw.keepApartPairs as string[], LIMITS.MAX_PAIR_RULES);
+  }
+  if (Array.isArray(raw.pairTogetherPairs)) {
+    out.pairTogetherPairs = sanitizePairKeyList(raw.pairTogetherPairs as string[], LIMITS.MAX_PAIR_RULES);
+  }
+  if (Array.isArray(raw.recentPairKeys)) {
+    out.recentPairKeys = sanitizePairKeyList(raw.recentPairKeys as string[], LIMITS.MAX_RECENT_PAIRS);
+  }
+  if (Array.isArray(raw.spotlightCalledIds)) {
+    out.spotlightCalledIds = Array.from(
+      new Set(
+        raw.spotlightCalledIds
+          .filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
+          .map((id) => sanitizeId(id, 'st'))
+      )
+    ).slice(0, 150);
+  }
+  if (typeof raw.spotlightDeckMode === 'boolean') {
+    out.spotlightDeckMode = raw.spotlightDeckMode;
+  }
+
+  return out;
+}
+
+async function healSectionDocument(
+  sectionRef: ReturnType<typeof doc>,
+  raw: Record<string, unknown>,
+  sectionId: string,
+  fallbackOrder: number,
+  email: string,
+  patch?: Record<string, unknown>
+): Promise<void> {
+  const mergedRaw = patch ? { ...raw, ...patch } : raw;
+  const cleanDoc = buildCleanSectionPayload(mergedRaw, sectionId, fallbackOrder, email, false);
+  try {
+    await setDoc(sectionRef, cleanDoc);
+  } catch {
+    const freshDoc = buildCleanSectionPayload(mergedRaw, sectionId, fallbackOrder, email, true);
+    try {
+      await deleteDoc(sectionRef);
+    } catch {
+      // ignore if doc already missing
+    }
+    await setDoc(sectionRef, freshDoc);
+  }
+}
+
+async function updateSectionWithAutoHeal(
+  sectionId: string,
+  patch: Record<string, unknown>,
+  email: string,
+  fallbackOrder: number = 0
+): Promise<void> {
+  const path = `${SECTIONS_PATH}/${sectionId}`;
+  const sectionRef = doc(db, SECTIONS_PATH, sectionId);
+  const fullPatch: Record<string, unknown> = {
+    ...patch,
+    updatedBy: email,
+    updatedAt: serverTimestamp(),
+  };
+  try {
+    await updateDoc(sectionRef, fullPatch);
+  } catch (error) {
+    try {
+      const existingSnap = await getDoc(sectionRef);
+      const raw = existingSnap.exists() ? (existingSnap.data() as Record<string, unknown>) : {};
+      await healSectionDocument(sectionRef, raw, sectionId, fallbackOrder, email, fullPatch);
+      return;
+    } catch {
+      // fall through to standard error reporting
+    }
+    handleFirestoreError(error, OperationType.UPDATE, path);
+  }
 }
 
 export async function ensureWorkspaceAndSeed(teacherEmail: string): Promise<void> {
@@ -508,6 +851,15 @@ export async function ensureWorkspaceAndSeed(teacherEmail: string): Promise<void
       }
 
       await batch.commit();
+    }
+
+    // Heal any legacy or malformed section documents so future partial updates pass security rules
+    for (let idx = 0; idx < existingSectionsSnap.docs.length; idx++) {
+      const sDoc = existingSectionsSnap.docs[idx];
+      const rawData = sDoc.data() as Record<string, unknown>;
+      if (sectionNeedsHeal(rawData, sDoc.id)) {
+        await healSectionDocument(sDoc.ref, rawData, sDoc.id, idx, email);
+      }
     }
 
     // Remove the legacy default "Period 1 - Heights Tigers" sample section if present
@@ -738,16 +1090,7 @@ export async function renameSection(
   const cleanName = clampText(newName, LIMITS.SECTION_NAME_MAX);
   if (!cleanName) return;
   const email = teacherEmail.trim().toLowerCase().slice(0, LIMITS.EMAIL_MAX);
-  const path = `${SECTIONS_PATH}/${sectionId}`;
-  try {
-    await updateDoc(doc(db, SECTIONS_PATH, sectionId), {
-      name: cleanName,
-      updatedBy: email,
-      updatedAt: serverTimestamp(),
-    });
-  } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, path);
-  }
+  await updateSectionWithAutoHeal(sectionId, { name: cleanName }, email);
 }
 
 export async function deleteSection(
@@ -790,18 +1133,15 @@ export async function updateSectionSettings(
   teacherEmail: string
 ): Promise<void> {
   const email = teacherEmail.trim().toLowerCase().slice(0, LIMITS.EMAIL_MAX);
-  const path = `${SECTIONS_PATH}/${sectionId}`;
-  try {
-    await updateDoc(doc(db, SECTIONS_PATH, sectionId), {
+  await updateSectionWithAutoHeal(
+    sectionId,
+    {
       quickSize: Math.max(0, Math.min(12, Math.round(settings.quickSize))),
       quickCount: Math.max(0, Math.min(8, Math.round(settings.quickCount))),
       forceExactCount: Boolean(settings.forceExactCount),
-      updatedBy: email,
-      updatedAt: serverTimestamp(),
-    });
-  } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, path);
-  }
+    },
+    email
+  );
 }
 
 export async function updateSectionGroups(
@@ -811,20 +1151,13 @@ export async function updateSectionGroups(
   recentPairKeys?: string[]
 ): Promise<void> {
   const email = teacherEmail.trim().toLowerCase().slice(0, LIMITS.EMAIL_MAX);
-  const path = `${SECTIONS_PATH}/${sectionId}`;
-  try {
-    const payload: Record<string, unknown> = {
-      groups: sanitizeGroups(groups),
-      updatedBy: email,
-      updatedAt: serverTimestamp(),
-    };
-    if (Array.isArray(recentPairKeys)) {
-      payload.recentPairKeys = sanitizePairKeyList(recentPairKeys, LIMITS.MAX_RECENT_PAIRS);
-    }
-    await updateDoc(doc(db, SECTIONS_PATH, sectionId), payload);
-  } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, path);
+  const patch: Record<string, unknown> = {
+    groups: sanitizeGroups(groups),
+  };
+  if (Array.isArray(recentPairKeys)) {
+    patch.recentPairKeys = sanitizePairKeyList(recentPairKeys, LIMITS.MAX_RECENT_PAIRS);
   }
+  await updateSectionWithAutoHeal(sectionId, patch, email);
 }
 
 export async function updateSectionFloorPlan(
@@ -833,16 +1166,7 @@ export async function updateSectionFloorPlan(
   teacherEmail: string
 ): Promise<void> {
   const email = teacherEmail.trim().toLowerCase().slice(0, LIMITS.EMAIL_MAX);
-  const path = `${SECTIONS_PATH}/${sectionId}`;
-  try {
-    await updateDoc(doc(db, SECTIONS_PATH, sectionId), {
-      floorPlan: sanitizeFloorPlan(floorPlan),
-      updatedBy: email,
-      updatedAt: serverTimestamp(),
-    });
-  } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, path);
-  }
+  await updateSectionWithAutoHeal(sectionId, { floorPlan: sanitizeFloorPlan(floorPlan) }, email);
 }
 
 export async function applyFloorPlanToAllSections(
@@ -863,8 +1187,10 @@ export async function applyFloorPlanToAllSections(
       });
     });
     await batch.commit();
-  } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, SECTIONS_PATH);
+  } catch {
+    for (let idx = 0; idx < sections.length; idx++) {
+      await updateSectionWithAutoHeal(sections[idx].id, { floorPlan: cleanPlan }, email, idx);
+    }
   }
 }
 
@@ -878,11 +1204,7 @@ export async function updateSectionPairRules(
   teacherEmail: string
 ): Promise<void> {
   const email = teacherEmail.trim().toLowerCase().slice(0, LIMITS.EMAIL_MAX);
-  const path = `${SECTIONS_PATH}/${sectionId}`;
-  const payload: Record<string, unknown> = {
-    updatedBy: email,
-    updatedAt: serverTimestamp(),
-  };
+  const payload: Record<string, unknown> = {};
   if (patch.keepApartPairs !== undefined) {
     payload.keepApartPairs = sanitizePairKeyList(patch.keepApartPairs, LIMITS.MAX_PAIR_RULES);
   }
@@ -892,11 +1214,7 @@ export async function updateSectionPairRules(
   if (patch.recentPairKeys !== undefined) {
     payload.recentPairKeys = sanitizePairKeyList(patch.recentPairKeys, LIMITS.MAX_RECENT_PAIRS);
   }
-  try {
-    await updateDoc(doc(db, SECTIONS_PATH, sectionId), payload);
-  } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, path);
-  }
+  await updateSectionWithAutoHeal(sectionId, payload, email);
 }
 
 export async function updateSectionSpotlightDeck(
@@ -905,24 +1223,20 @@ export async function updateSectionSpotlightDeck(
   teacherEmail: string
 ): Promise<void> {
   const email = teacherEmail.trim().toLowerCase().slice(0, LIMITS.EMAIL_MAX);
-  const path = `${SECTIONS_PATH}/${sectionId}`;
-  const payload: Record<string, unknown> = {
-    updatedBy: email,
-    updatedAt: serverTimestamp(),
-  };
+  const payload: Record<string, unknown> = {};
   if (patch.spotlightCalledIds !== undefined) {
-    payload.spotlightCalledIds = patch.spotlightCalledIds
-      .map((id) => sanitizeId(id, 'st'))
-      .slice(0, 150);
+    payload.spotlightCalledIds = Array.from(
+      new Set(
+        patch.spotlightCalledIds
+          .filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
+          .map((id) => sanitizeId(id, 'st'))
+      )
+    ).slice(0, 150);
   }
   if (patch.spotlightDeckMode !== undefined) {
     payload.spotlightDeckMode = Boolean(patch.spotlightDeckMode);
   }
-  try {
-    await updateDoc(doc(db, SECTIONS_PATH, sectionId), payload);
-  } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, path);
-  }
+  await updateSectionWithAutoHeal(sectionId, payload, email);
 }
 
 export async function applyDefaultGroupingToAllSections(
@@ -947,8 +1261,15 @@ export async function applyDefaultGroupingToAllSections(
       });
     });
     await batch.commit();
-  } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, SECTIONS_PATH);
+  } catch {
+    for (let idx = 0; idx < sections.length; idx++) {
+      await updateSectionWithAutoHeal(
+        sections[idx].id,
+        { quickSize, quickCount, forceExactCount },
+        email,
+        idx
+      );
+    }
   }
 }
 
@@ -958,16 +1279,11 @@ export async function updateSectionPassQueue(
   teacherEmail: string
 ): Promise<void> {
   const email = teacherEmail.trim().toLowerCase().slice(0, LIMITS.EMAIL_MAX);
-  const path = `${SECTIONS_PATH}/${sectionId}`;
-  try {
-    await updateDoc(doc(db, SECTIONS_PATH, sectionId), {
-      passQueue: sanitizePassQueue(passQueue),
-      updatedBy: email,
-      updatedAt: serverTimestamp(),
-    });
-  } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, path);
-  }
+  await updateSectionWithAutoHeal(
+    sectionId,
+    { passQueue: sanitizePassQueue(passQueue) },
+    email
+  );
 }
 
 export async function markStudentAbsentAndRemoveFromGroups(
@@ -999,6 +1315,18 @@ export async function markStudentAbsentAndRemoveFromGroups(
     });
     await batch.commit();
   } catch (error) {
+    try {
+      await updateSectionWithAutoHeal(sectionId, { groups: nextGroups }, email);
+      await updateDoc(doc(db, `${SECTIONS_PATH}/${sectionId}/students`, studentId), {
+        present: false,
+        attendanceStatus: 'absent',
+        updatedBy: email,
+        updatedAt: serverTimestamp(),
+      });
+      return;
+    } catch {
+      // fall through
+    }
     handleFirestoreError(error, OperationType.UPDATE, path);
   }
 }

@@ -200,6 +200,7 @@ export interface AppSettings {
   maxQuarterPasses: number;
   maxConcurrentPasses: number;
   autoRotateRoles: boolean;
+  rolesOptInDefaulted?: boolean;
   avoidRecentPairs: boolean;
   deadZoneEnabled: boolean;
   deadZoneStartMinutes: number;
@@ -225,7 +226,8 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   overdueSoundEnabled: true,
   maxQuarterPasses: 4,
   maxConcurrentPasses: 1,
-  autoRotateRoles: true,
+  autoRotateRoles: false,
+  rolesOptInDefaulted: true,
   avoidRecentPairs: true,
   deadZoneEnabled: false,
   deadZoneStartMinutes: 10,

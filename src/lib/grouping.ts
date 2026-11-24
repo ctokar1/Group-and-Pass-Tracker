@@ -41,6 +41,13 @@ export function assignGroupRoles(
   return roles;
 }
 
+export function clearGroupRoles(groups: GroupEntry[]): GroupEntry[] {
+  return groups.map((g) => ({
+    ...g,
+    roles: {},
+  }));
+}
+
 export function rotateGroupRoles(groups: GroupEntry[]): GroupEntry[] {
   return groups.map((g) => {
     const ids = g.studentIds || [];
@@ -101,7 +108,7 @@ export function generateColorGroups(
   section: ClassSectionDoc,
   options: GenerateGroupsOptions = {}
 ): { groups: GroupEntry[]; nextRecentPairKeys: string[] } {
-  const { assignRoles = true, avoidRecentPairs = true } = options;
+  const { assignRoles = false, avoidRecentPairs = true } = options;
   const presentStudents = students.filter((s) => s.present);
   if (presentStudents.length === 0) {
     return { groups: [], nextRecentPairKeys: section.recentPairKeys || [] };
@@ -288,12 +295,10 @@ export function generateColorGroups(
     groups[bestGroupIdx].studentIds.push(...unit);
   }
 
-  // 4. Assign rotating roles to each table
-  if (assignRoles) {
-    groups.forEach((g, idx) => {
-      g.roles = assignGroupRoles(g.studentIds, idx);
-    });
-  }
+  // 4. Assign rotating roles only when opted in; otherwise clear roles
+  groups.forEach((g, idx) => {
+    g.roles = assignRoles ? assignGroupRoles(g.studentIds, idx) : {};
+  });
 
   // 5. Update recent pairing memory (merge new round with previous, cap at LIMITS.MAX_RECENT_PAIRS)
   const newPairs = extractPairsFromGroups(groups);
@@ -310,7 +315,8 @@ export function generateColorGroups(
 export function dropStudentIntoOpenSeat(
   studentId: string,
   groups: GroupEntry[],
-  keepApartPairs: string[] = []
+  keepApartPairs: string[] = [],
+  assignRoles: boolean = false
 ): GroupEntry[] {
   if (groups.length === 0) return groups;
   const alreadySeated = groups.some((g) => g.studentIds.includes(studentId));
@@ -333,9 +339,19 @@ export function dropStudentIntoOpenSeat(
     }
   });
 
+  const anyExistingRoles = groups.some(
+    (g) => g.roles && Object.keys(g.roles).length > 0
+  );
+
   return groups.map((g, idx) => {
     if (idx !== bestIdx) return g;
     const nextIds = [...g.studentIds, studentId];
+    if (!assignRoles && !anyExistingRoles) {
+      return {
+        ...g,
+        studentIds: nextIds,
+      };
+    }
     const usedRoles = new Set(Object.values(g.roles || {}));
     const nextRole =
       CLASSROOM_ROLES.find((r) => !usedRoles.has(r)) ||

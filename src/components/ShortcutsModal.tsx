@@ -12,6 +12,7 @@ const SHORTCUTS = [
   { key: 'G', label: 'Reshuffle Groups', desc: 'Runs smart shuffle with rules & pairing memory' },
   { key: 'R', label: 'Rotate Table Roles', desc: 'Advances roles without changing student seats' },
   { key: 'P', label: 'Toggle Projector View', desc: 'Opens or exits full-screen projector display' },
+  { key: '+ / -', label: 'Scale Projector Text', desc: 'Enlarge or shrink student names & text in Projector View' },
   { key: 'F', label: '10s Fist-to-Five Check', desc: 'Launches quick confidence check in Projector View' },
   { key: '?', label: 'Keyboard Shortcuts', desc: 'Opens or closes this quick reference' },
   { key: 'Esc', label: 'Close Modal / Exit Overlay', desc: 'Dismisses dialogs or active overlays' },

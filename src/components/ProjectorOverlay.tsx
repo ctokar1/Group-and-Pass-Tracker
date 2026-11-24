@@ -20,6 +20,7 @@ import {
   Shuffle,
   Sparkles,
   Timer,
+  Type,
   Undo2,
   Unlock,
   UserCheck,
@@ -67,6 +68,8 @@ interface ProjectorOverlayProps {
   onOpenShortcuts: () => void;
   onReshuffle: () => void;
   onRotateRoles: () => void;
+  onClearRoles: () => void;
+  onRemoveStudentRole: (groupId: string, studentId: string) => void;
   onToggleLockStudent: (groupId: string, studentId: string) => void;
   onAdjustGroupPoints: (groupId: string, delta: number) => void;
   onSaveFloorPlan: (layout: FloorPlanLayout) => Promise<void> | void;
@@ -131,6 +134,8 @@ export const ProjectorOverlay: React.FC<ProjectorOverlayProps> = ({
   onOpenShortcuts,
   onReshuffle,
   onRotateRoles,
+  onClearRoles,
+  onRemoveStudentRole,
   onToggleLockStudent,
   onAdjustGroupPoints,
   onSaveFloorPlan,
@@ -140,6 +145,11 @@ export const ProjectorOverlay: React.FC<ProjectorOverlayProps> = ({
   onRestorePresentStudent,
 }) => {
   const [projectorLayout, setProjectorLayout] = useState<'grid' | 'floorplan'>('grid');
+  const [textScale, setTextScale] = useState<number>(() => {
+    if (typeof window === 'undefined') return 2;
+    const saved = Number(window.localStorage.getItem('tiger_projector_scale_v2'));
+    return Number.isFinite(saved) && saved >= 1 && saved <= 5 ? Math.round(saved) : 2;
+  });
   const [showNoiseMeter, setShowNoiseMeter] = useState(false);
   const [showAbsentPanel, setShowAbsentPanel] = useState(false);
 
@@ -153,6 +163,88 @@ export const ProjectorOverlay: React.FC<ProjectorOverlayProps> = ({
   const lastTriggerRef = useRef<number>(0);
   const lastTimerTriggerRef = useRef<number>(timerToggleTrigger);
   const lastFistTriggerRef = useRef<number>(fistToFiveTrigger);
+
+  const gridContainerRef = useRef<HTMLDivElement | null>(null);
+  const [gridBox, setGridBox] = useState<{ width: number; height: number }>(() =>
+    typeof window === 'undefined'
+      ? { width: 1200, height: 640 }
+      : {
+          width: Math.max(320, window.innerWidth - 32),
+          height: Math.max(240, window.innerHeight - 130),
+        }
+  );
+
+  const groupCountForMeasure = section?.groups?.length ?? 0;
+  useEffect(() => {
+    if (!open || projectorLayout !== 'grid') return;
+    const measure = () => {
+      const el = gridContainerRef.current;
+      if (el && el.clientWidth > 0 && el.clientHeight > 0) {
+        const nextW = el.clientWidth;
+        const nextH = el.clientHeight;
+        setGridBox((prev) =>
+          Math.abs(prev.width - nextW) <= 1 && Math.abs(prev.height - nextH) <= 1
+            ? prev
+            : { width: nextW, height: nextH }
+        );
+      } else {
+        const nextW = Math.max(320, window.innerWidth - 32);
+        const nextH = Math.max(240, window.innerHeight - 130);
+        setGridBox((prev) =>
+          Math.abs(prev.width - nextW) <= 1 && Math.abs(prev.height - nextH) <= 1
+            ? prev
+            : { width: nextW, height: nextH }
+        );
+      }
+    };
+
+    measure();
+    const rafId = window.requestAnimationFrame(measure);
+    let ro: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined' && gridContainerRef.current) {
+      ro = new ResizeObserver(measure);
+      ro.observe(gridContainerRef.current);
+    }
+    window.addEventListener('resize', measure);
+    return () => {
+      window.cancelAnimationFrame(rafId);
+      ro?.disconnect();
+      window.removeEventListener('resize', measure);
+    };
+  }, [open, projectorLayout, groupCountForMeasure]);
+
+  const updateTextScale = useCallback((updater: (prev: number) => number) => {
+    setTextScale((prev) => {
+      const next = Math.max(1, Math.min(5, updater(prev)));
+      try {
+        window.localStorage.setItem('tiger_projector_scale_v2', String(next));
+      } catch {
+        // ignore storage errors
+      }
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleScaleKey = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName || '';
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target?.isContentEditable) {
+        return;
+      }
+      if (e.key === '+' || e.key === '=') {
+        e.preventDefault();
+        updateTextScale((s) => s + 1);
+      } else if (e.key === '-' || e.key === '_') {
+        e.preventDefault();
+        updateTextScale((s) => s - 1);
+      }
+    };
+    window.addEventListener('keydown', handleScaleKey);
+    return () => window.removeEventListener('keydown', handleScaleKey);
+  }, [open, updateTextScale]);
 
   // Optimistic local Deck state so rapid Spotlight spins or toggles never read stale props
   const [localDeckMode, setLocalDeckMode] = useState<boolean>(
@@ -366,6 +458,7 @@ export const ProjectorOverlay: React.FC<ProjectorOverlayProps> = ({
   if (!open) return null;
 
   const groups = section?.groups || [];
+  const hasRoles = groups.some((g) => g.roles && Object.keys(g.roles).length > 0);
   const studentMap = new Map(students.map((s) => [s.id, s]));
   const absentStudents = students
     .filter((s) => !s.present)
@@ -376,85 +469,101 @@ export const ProjectorOverlay: React.FC<ProjectorOverlayProps> = ({
     : spotlightWinner?.studentId || null;
   const spotlightActive = isSpotlighting || Boolean(spotlightWinner);
 
+  const zoomFactorMap: Record<number, number> = {
+    1: 0.85,
+    2: 1.0,
+    3: 1.2,
+    4: 1.45,
+    5: 1.75,
+  };
+  const scaleLabelMap: Record<number, string> = {
+    1: '85%',
+    2: 'Fit',
+    3: '120%',
+    4: '145%',
+    5: '175%',
+  };
+  const zoomFactor = zoomFactorMap[textScale] ?? 1.0;
+
   const numGroups = groups.length;
-  const maxStudents = Math.max(...groups.map((g) => g.studentIds.length), 1);
+  const maxStudents = Math.max(
+    ...groups.map((g) => g.studentIds.filter((sid) => studentMap.has(sid)).length),
+    1
+  );
+  const longestNameLen = Math.max(
+    12,
+    ...groups.flatMap((g) =>
+      g.studentIds.map((sid) => studentMap.get(sid)?.name.length ?? 0)
+    )
+  );
 
-  let gridLayoutClass = 'grid-cols-1 grid-rows-1';
-  let isTwoRows = false;
-  if (numGroups === 2) {
-    gridLayoutClass = 'grid-cols-2 grid-rows-1';
+  // Choose grid columns & rows dynamically from container width and group count
+  let cols = 1;
+  if (numGroups <= 1) {
+    cols = 1;
+  } else if (numGroups === 2) {
+    cols = gridBox.width < 680 ? 1 : 2;
   } else if (numGroups === 3) {
-    gridLayoutClass = 'grid-cols-3 grid-rows-1';
+    cols = gridBox.width < 760 ? 1 : 3;
   } else if (numGroups === 4) {
-    gridLayoutClass = 'grid-cols-2 grid-rows-2';
-    isTwoRows = true;
+    cols = gridBox.width < 580 ? 1 : 2;
   } else if (numGroups === 5 || numGroups === 6) {
-    gridLayoutClass = 'grid-cols-3 grid-rows-2';
-    isTwoRows = true;
-  } else if (numGroups >= 7) {
-    gridLayoutClass = 'grid-cols-4 grid-rows-2';
-    isTwoRows = true;
-  }
-
-  let fontClass = 'text-xl sm:text-2xl font-black';
-  let itemPadding = 'py-2 px-3';
-  let cardPadding = 'p-3 sm:p-4';
-  let headerTextClass = 'text-lg sm:text-xl font-black';
-  let headerPadding = 'pb-2 mb-2';
-
-  if (isTwoRows) {
-    if (maxStudents <= 3) {
-      fontClass = 'text-lg sm:text-xl font-extrabold';
-      itemPadding = 'py-1.5 px-2.5';
-      cardPadding = 'p-3';
-      headerTextClass = 'text-base sm:text-lg font-black';
-      headerPadding = 'pb-1.5 mb-1.5';
-    } else if (maxStudents <= 5) {
-      fontClass = 'text-sm sm:text-base font-bold';
-      itemPadding = 'py-1 px-2.5';
-      cardPadding = 'p-2.5';
-      headerTextClass = 'text-sm sm:text-base font-black';
-      headerPadding = 'pb-1 mb-1';
-    } else if (maxStudents <= 7) {
-      fontClass = 'text-xs sm:text-sm font-bold';
-      itemPadding = 'py-0.5 px-2';
-      cardPadding = 'p-2';
-      headerTextClass = 'text-xs sm:text-sm font-black';
-      headerPadding = 'pb-1 mb-1';
-    } else {
-      fontClass = 'text-[11px] sm:text-xs font-bold';
-      itemPadding = 'py-0.5 px-1.5';
-      cardPadding = 'p-1.5';
-      headerTextClass = 'text-xs font-black';
-      headerPadding = 'pb-0.5 mb-0.5';
-    }
+    cols = gridBox.width < 640 ? 1 : gridBox.width < 900 ? 2 : 3;
   } else {
-    if (maxStudents <= 3) {
-      fontClass = 'text-2xl sm:text-4xl font-black';
-      itemPadding = 'py-3 px-4';
-      cardPadding = 'p-4 sm:p-5';
-      headerTextClass = 'text-xl sm:text-2xl font-black';
-      headerPadding = 'pb-2.5 mb-2.5';
-    } else if (maxStudents <= 5) {
-      fontClass = 'text-lg sm:text-2xl font-black';
-      itemPadding = 'py-2 px-3.5';
-      cardPadding = 'p-3.5 sm:p-4';
-      headerTextClass = 'text-lg sm:text-xl font-black';
-      headerPadding = 'pb-2 mb-2';
-    } else if (maxStudents <= 7) {
-      fontClass = 'text-base sm:text-lg font-extrabold';
-      itemPadding = 'py-1.5 px-3';
-      cardPadding = 'p-3';
-      headerTextClass = 'text-base sm:text-lg font-black';
-      headerPadding = 'pb-1.5 mb-1.5';
-    } else {
-      fontClass = 'text-sm sm:text-base font-bold';
-      itemPadding = 'py-1 px-2';
-      cardPadding = 'p-2.5';
-      headerTextClass = 'text-sm sm:text-base font-black';
-      headerPadding = 'pb-1 mb-1';
-    }
+    cols = gridBox.width < 640 ? 1 : gridBox.width < 900 ? 2 : gridBox.width < 1180 ? 3 : 4;
   }
+  const rows = Math.max(1, Math.ceil(Math.max(1, numGroups) / cols));
+
+  const gapPx = gridBox.height < 500 || gridBox.width < 760 ? 8 : 12;
+  const cardW = Math.max(200, (gridBox.width - gapPx * Math.max(0, cols - 1)) / cols);
+  const cardH = Math.max(140, (gridBox.height - gapPx * Math.max(0, rows - 1)) / rows);
+
+  const cardPadY = Math.max(6, Math.min(16, Math.round(cardH * 0.032)));
+  const cardPadX = Math.max(8, Math.min(18, Math.round(cardW * 0.035)));
+  const headerH = Math.max(26, Math.min(50, Math.round(cardH * 0.14)));
+  const headerFontPx = Math.max(13, Math.min(30, Math.round(headerH * 0.48 * zoomFactor)));
+  const headerPadBottom = Math.max(4, Math.min(10, Math.round(headerH * 0.16)));
+  const headerMarginBottom = Math.max(4, Math.min(10, Math.round(headerH * 0.16)));
+  const rowGapPx = Math.max(3, Math.min(8, Math.round(cardH * 0.015)));
+
+  const listAvailH = Math.max(
+    40,
+    cardH - cardPadY * 2 - headerH - headerMarginBottom - rowGapPx * Math.max(0, maxStudents - 1) - 4
+  );
+  const slotH = listAvailH / Math.max(1, maxStudents);
+  const fitRowPadY = Math.max(2, Math.min(10, Math.round(slotH * 0.11)));
+  const fitRowPadX = Math.max(6, Math.min(14, Math.round(cardW * 0.024)));
+  const fitInnerH = Math.max(14, slotH - fitRowPadY * 2);
+
+  // Compute max name size that fits both vertically and horizontally without clipping/overlapping
+  const fitNameByHeight = hasRoles
+    ? Math.max(10, (fitInnerH - 2) / 1.92)
+    : Math.max(11, fitInnerH / 1.24);
+  const actionButtonsWidth = 68;
+  const textAvailW = Math.max(70, cardW - cardPadX * 2 - fitRowPadX * 2 - actionButtonsWidth - 8);
+  const effectiveChars = Math.max(12, Math.min(longestNameLen, 22));
+  const fitNameByWidth = textAvailW / (effectiveChars * 0.56);
+  const fitNameFontPx = Math.max(10, Math.min(48, Math.min(fitNameByHeight, fitNameByWidth)));
+
+  const nameFontPx = Math.max(10, Math.min(64, Math.round(fitNameFontPx * zoomFactor * 10) / 10));
+  const roleFontPx = Math.max(9, Math.min(22, Math.round(nameFontPx * 0.56 * 10) / 10));
+  const rowPadY = Math.max(2, Math.min(14, Math.round(fitRowPadY * Math.max(0.85, zoomFactor))));
+  const rowPadX = Math.max(6, Math.min(16, fitRowPadX));
+  const pointsFontPx = Math.max(11, Math.min(18, Math.round(headerFontPx * 0.65)));
+  const badgeFontPx = Math.max(11, Math.min(18, Math.round(headerFontPx * 0.68)));
+  const iconBtnPx = nameFontPx >= 24 ? 16 : nameFontPx >= 16 ? 14 : 12;
+  const isZoomedBeyondFit = zoomFactor > 1.05;
+
+  // Estimate remaining space inside tallest card so rows sit nicely without overflowing
+  const estRowHeight =
+    rowPadY * 2 + nameFontPx * 1.18 + (hasRoles ? roleFontPx * 1.2 + 2 : 0) + 2;
+  const estTotalListH =
+    maxStudents * estRowHeight + Math.max(0, maxStudents - 1) * rowGapPx;
+  const extraSpacePerGap =
+    !isZoomedBeyondFit && listAvailH > estTotalListH
+      ? Math.min(14, Math.floor((listAvailH - estTotalListH) / Math.max(1, maxStudents)))
+      : 0;
+  const computedRowGapPx = rowGapPx + extraSpacePerGap;
 
   const handleDragStart = (
     e: React.DragEvent<HTMLDivElement>,
@@ -524,10 +633,20 @@ export const ProjectorOverlay: React.FC<ProjectorOverlayProps> = ({
         <div className="flex items-center gap-3">
           <span className="text-xl">🐾</span>
           <div>
-            <h2 className="font-extrabold text-base sm:text-lg text-white leading-none">
+            <h2
+              className={`font-extrabold text-white leading-none ${
+                textScale >= 4 ? 'text-lg sm:text-2xl' : 'text-base sm:text-lg'
+              }`}
+            >
               {section?.name || 'Class Period'}
             </h2>
-            <p className="text-xs text-amber-400 font-bold mt-1">{formatRuleSummary(section)}</p>
+            <p
+              className={`text-amber-400 font-bold mt-1 ${
+                textScale >= 4 ? 'text-xs sm:text-sm' : 'text-xs'
+              }`}
+            >
+              {formatRuleSummary(section)}
+            </p>
           </div>
 
           {/* Grid vs 2D Floor Plan Toggle */}
@@ -557,6 +676,40 @@ export const ProjectorOverlay: React.FC<ProjectorOverlayProps> = ({
             >
               <MapIcon className="w-3.5 h-3.5" />
               Room Map
+            </button>
+          </div>
+
+          {/* Text Size Scale Control */}
+          <div
+            className="flex items-center bg-slate-950 border border-slate-800 rounded-xl overflow-hidden"
+            title="Scale student names & text size for back-of-classroom visibility (+ / -)"
+          >
+            <button
+              type="button"
+              onClick={() => updateTextScale((s) => s - 1)}
+              disabled={textScale <= 1}
+              className="px-2 py-1.5 text-slate-300 hover:bg-slate-800 hover:text-white disabled:opacity-35 font-black text-xs cursor-pointer"
+              aria-label="Decrease presentation text size"
+            >
+              A-
+            </button>
+            <button
+              type="button"
+              onClick={() => updateTextScale(() => 2)}
+              className="px-2 py-1.5 border-x border-slate-800 text-amber-300 hover:bg-slate-800 text-[11px] font-black font-mono-tabular flex items-center gap-1 cursor-pointer"
+              title="Click to reset text size to window Auto-Fit (100%)"
+            >
+              <Type className="w-3 h-3" />
+              {scaleLabelMap[textScale] || 'Fit'}
+            </button>
+            <button
+              type="button"
+              onClick={() => updateTextScale((s) => s + 1)}
+              disabled={textScale >= 5}
+              className="px-2 py-1.5 text-slate-300 hover:bg-slate-800 hover:text-white disabled:opacity-35 font-black text-xs cursor-pointer"
+              aria-label="Increase presentation text size"
+            >
+              A+
             </button>
           </div>
         </div>
@@ -753,11 +906,21 @@ export const ProjectorOverlay: React.FC<ProjectorOverlayProps> = ({
             onClick={onRotateRoles}
             disabled={groups.length === 0}
             className="px-3 py-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-amber-300 font-extrabold text-xs rounded-xl border border-slate-700 flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
-            title="Rotate table roles without moving seats (R)"
+            title="Assign or rotate table roles without moving seats (R)"
           >
             <RefreshCw className="w-3.5 h-3.5" />
-            Roles
+            {hasRoles ? 'Roles' : 'Assign Roles'}
           </button>
+          {hasRoles && (
+            <button
+              onClick={onClearRoles}
+              className="px-2.5 py-2 bg-slate-800 hover:bg-rose-950/70 text-slate-300 hover:text-rose-300 font-bold text-xs rounded-xl border border-slate-700 hover:border-rose-700/50 flex items-center gap-1 whitespace-nowrap cursor-pointer"
+              title="Remove roles from all tables"
+            >
+              <X className="w-3.5 h-3.5" />
+              No Roles
+            </button>
+          )}
 
           <button
             onClick={() => setShowNoiseMeter((v) => !v)}
@@ -843,11 +1006,23 @@ export const ProjectorOverlay: React.FC<ProjectorOverlayProps> = ({
               Phase {timer.stageIndex + 1}/{timer.stages.length}
             </span>
             <div className="min-w-0">
-              <span className="font-black text-sm sm:text-base text-white block truncate">
+              <span
+                className={`font-black text-white block truncate ${
+                  textScale >= 4
+                    ? 'text-lg sm:text-2xl'
+                    : textScale === 3
+                    ? 'text-base sm:text-xl'
+                    : 'text-sm sm:text-base'
+                }`}
+              >
                 {timer.activeStage.title}
               </span>
               {timer.activeStage.instructions && (
-                <span className="text-xs text-slate-300 block truncate">
+                <span
+                  className={`text-slate-300 block truncate ${
+                    textScale >= 4 ? 'text-sm sm:text-base' : 'text-xs sm:text-sm'
+                  }`}
+                >
                   {timer.activeStage.instructions}
                 </span>
               )}
@@ -915,14 +1090,30 @@ export const ProjectorOverlay: React.FC<ProjectorOverlayProps> = ({
 
       {/* Live Shuffling Banner */}
       {isSpotlighting && (
-        <div className="bg-slate-900 border-2 border-amber-400 text-amber-300 font-black text-lg sm:text-xl py-2 px-4 rounded-xl mb-2 text-center shrink-0">
+        <div
+          className={`bg-slate-900 border-2 border-amber-400 text-amber-300 font-black py-2 px-4 rounded-xl mb-2 text-center shrink-0 ${
+            textScale >= 4
+              ? 'text-2xl sm:text-3xl'
+              : textScale >= 2
+              ? 'text-xl sm:text-2xl'
+              : 'text-lg sm:text-xl'
+          }`}
+        >
           🎯 Spotlighting across student groups...
         </div>
       )}
 
       {/* Spotlight Winner Banner with Draw Next, Skip/Return to Deck & Close Options */}
       {!isSpotlighting && spotlightWinner && (
-        <div className="bg-gradient-to-r from-amber-500 via-amber-400 to-yellow-300 text-black font-black text-lg sm:text-2xl py-2 px-4 rounded-xl mb-2 flex flex-wrap items-center justify-between gap-3 shrink-0 shadow-lg">
+        <div
+          className={`bg-gradient-to-r from-amber-500 via-amber-400 to-yellow-300 text-black font-black py-2.5 px-4 rounded-xl mb-2 flex flex-wrap items-center justify-between gap-3 shrink-0 shadow-lg ${
+            textScale >= 4
+              ? 'text-2xl sm:text-4xl'
+              : textScale >= 2
+              ? 'text-xl sm:text-3xl'
+              : 'text-lg sm:text-2xl'
+          }`}
+        >
           <span className="hidden lg:inline-block w-44 shrink-0" aria-hidden="true" />
           <span className="text-center truncate flex-1">
             🏆 Spotlight Winner: {spotlightWinner.studentName} ({spotlightWinner.groupName})
@@ -965,6 +1156,7 @@ export const ProjectorOverlay: React.FC<ProjectorOverlayProps> = ({
           section={section}
           students={students}
           projectorMode
+          textScale={textScale}
           activeHighlightId={activeHighlightId}
           spotlightActive={spotlightActive}
           isSpotlighting={isSpotlighting}
@@ -972,6 +1164,7 @@ export const ProjectorOverlay: React.FC<ProjectorOverlayProps> = ({
           onMoveStudent={onMoveStudent}
           onOpenQuickMove={onOpenQuickMove}
           onToggleLockStudent={onToggleLockStudent}
+          onRemoveStudentRole={onRemoveStudentRole}
           onAdjustGroupPoints={onAdjustGroupPoints}
           onRemoveAbsentFromGroups={onRemoveAbsentFromGroups}
         />
@@ -986,7 +1179,19 @@ export const ProjectorOverlay: React.FC<ProjectorOverlayProps> = ({
           </div>
         </div>
       ) : (
-        <div className={`flex-1 grid ${gridLayoutClass} gap-2.5 sm:gap-3.5 min-h-0 overflow-hidden h-full`}>
+        <div
+          ref={gridContainerRef}
+          style={{
+            gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
+            ...(isZoomedBeyondFit
+              ? {}
+              : { gridTemplateRows: `repeat(${rows}, minmax(0, 1fr))` }),
+            gap: `${gapPx}px`,
+          }}
+          className={`flex-1 grid min-h-0 overflow-y-auto pr-0.5 ${
+            isZoomedBeyondFit ? 'content-start items-stretch' : 'h-full'
+          }`}
+        >
           {groups.map((grp, idx) => {
             const colorDef =
               COLOR_DEFINITIONS[grp.colorIndex % COLOR_DEFINITIONS.length] ||
@@ -1002,14 +1207,24 @@ export const ProjectorOverlay: React.FC<ProjectorOverlayProps> = ({
                 key={grp.id}
                 onDragOver={(e) => e.preventDefault()}
                 onDrop={(e) => handleDrop(e, grp.id)}
-                className={`bg-slate-900 border-2 ${colorDef.border} ${colorDef.bg} rounded-2xl ${cardPadding} flex flex-col justify-between h-full min-h-0 overflow-hidden`}
+                style={{ padding: `${cardPadY}px ${cardPadX}px` }}
+                className={`bg-slate-900 border-2 ${colorDef.border} ${colorDef.bg} rounded-2xl flex flex-col justify-between ${
+                  isZoomedBeyondFit ? 'min-h-0' : 'h-full min-h-0'
+                }`}
               >
                 <div
-                  className={`flex items-center justify-between border-b-2 border-slate-800/80 ${headerPadding} shrink-0 gap-2`}
+                  style={{
+                    paddingBottom: `${headerPadBottom}px`,
+                    marginBottom: `${headerMarginBottom}px`,
+                  }}
+                  className="flex items-center justify-between border-b-2 border-slate-800/80 shrink-0 gap-2"
                 >
                   <div className="flex items-center gap-2 min-w-0">
-                    <span className={`w-3.5 h-3.5 rounded-full ${colorDef.color} shrink-0`} />
-                    <h3 className={`${headerTextClass} text-white tracking-wide truncate`}>
+                    <span className={`w-3 h-3 rounded-full ${colorDef.color} shrink-0`} />
+                    <h3
+                      style={{ fontSize: `${headerFontPx}px`, lineHeight: 1.15 }}
+                      className="font-black text-white tracking-wide truncate"
+                    >
                       {grp.name || colorDef.name}
                     </h3>
                   </div>
@@ -1026,7 +1241,8 @@ export const ProjectorOverlay: React.FC<ProjectorOverlayProps> = ({
                         <Minus className="w-3 h-3" />
                       </button>
                       <span
-                        className={`text-xs font-black font-mono-tabular px-1 ${
+                        style={{ fontSize: `${pointsFontPx}px` }}
+                        className={`font-black font-mono-tabular px-1 ${
                           points > 0
                             ? 'text-emerald-400'
                             : points < 0
@@ -1047,16 +1263,22 @@ export const ProjectorOverlay: React.FC<ProjectorOverlayProps> = ({
                       </button>
                     </div>
                     <span
-                      className={`text-xs sm:text-sm font-black px-2 py-0.5 rounded-lg bg-slate-950 ${colorDef.text} tabular-nums shrink-0`}
+                      style={{ fontSize: `${badgeFontPx}px` }}
+                      className={`font-black px-2 py-0.5 rounded-lg bg-slate-950 ${colorDef.text} tabular-nums shrink-0`}
                     >
                       {memberStudents.length}
                     </span>
                   </div>
                 </div>
 
-                <div className="flex-1 flex flex-col justify-evenly gap-1 min-h-0 overflow-hidden">
+                <div
+                  style={{ gap: `${computedRowGapPx}px` }}
+                  className={`flex-1 flex flex-col justify-start min-h-0 ${
+                    isZoomedBeyondFit ? '' : 'overflow-y-auto pr-0.5'
+                  }`}
+                >
                   {memberStudents.length === 0 ? (
-                    <div className="flex-1 flex items-center justify-center border-2 border-dashed border-slate-800/80 rounded-xl min-h-0">
+                    <div className="flex-1 flex items-center justify-center border-2 border-dashed border-slate-800/80 rounded-xl min-h-[60px]">
                       <span className="text-xs font-bold text-slate-600">Empty Station</span>
                     </div>
                   ) : (
@@ -1070,9 +1292,10 @@ export const ProjectorOverlay: React.FC<ProjectorOverlayProps> = ({
                           key={st.id}
                           draggable
                           onDragStart={(e) => handleDragStart(e, st.id, grp.id)}
-                          className={`rounded-xl ${itemPadding} flex items-center justify-between cursor-grab active:cursor-grabbing min-h-0 overflow-hidden transition-all duration-100 ${
+                          style={{ padding: `${rowPadY}px ${rowPadX}px` }}
+                          className={`rounded-xl shrink-0 flex items-center justify-between cursor-grab active:cursor-grabbing transition-all duration-100 ${
                             isHighlighted
-                              ? 'bg-amber-400 text-black border-2 border-yellow-100 ring-4 ring-amber-400/60 scale-[1.02] shadow-xl z-10'
+                              ? 'bg-amber-400 text-black border-2 border-yellow-100 ring-2 ring-amber-400/70 shadow-xl z-10'
                               : isDimmed
                               ? 'bg-slate-950/60 border border-slate-800/60 opacity-40'
                               : 'bg-slate-950 border border-slate-800'
@@ -1080,7 +1303,8 @@ export const ProjectorOverlay: React.FC<ProjectorOverlayProps> = ({
                         >
                           <div className="min-w-0 flex-1">
                             <span
-                              className={`${fontClass} leading-tight break-words whitespace-normal tracking-tight flex items-center gap-1.5 ${
+                              style={{ fontSize: `${nameFontPx}px`, lineHeight: 1.16 }}
+                              className={`font-black break-words whitespace-normal tracking-tight flex items-center gap-1.5 ${
                                 isHighlighted ? 'text-black' : 'text-white'
                               }`}
                             >
@@ -1091,24 +1315,42 @@ export const ProjectorOverlay: React.FC<ProjectorOverlayProps> = ({
                               )}
                               {isLocked && (
                                 <Lock
-                                  className={`w-3.5 h-3.5 shrink-0 ${
+                                  style={{ width: `${iconBtnPx}px`, height: `${iconBtnPx}px` }}
+                                  className={`shrink-0 ${
                                     isHighlighted ? 'text-black' : 'text-amber-400'
                                   }`}
                                 />
                               )}
-                              <span>{st.name}</span>
+                              <span className="min-w-0">{st.name}</span>
                             </span>
                             {role && (
                               <span
-                                className={`text-[11px] font-bold block truncate ${
+                                style={{ fontSize: `${roleFontPx}px`, lineHeight: 1.2 }}
+                                className={`inline-flex items-center gap-1 font-bold mt-0.5 max-w-full ${
                                   isHighlighted ? 'text-black/75' : 'text-amber-300/90'
                                 }`}
                               >
-                                {role}
+                                <span className="truncate">{role}</span>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    onRemoveStudentRole(grp.id, st.id);
+                                  }}
+                                  className={`no-print cursor-pointer shrink-0 ${
+                                    isHighlighted
+                                      ? 'text-black/60 hover:text-black'
+                                      : 'text-slate-500 hover:text-rose-400'
+                                  }`}
+                                  title={`Remove ${role} role`}
+                                  aria-label={`Remove ${role} role from ${st.name}`}
+                                >
+                                  <X className="w-3 h-3" />
+                                </button>
                               </span>
                             )}
                           </div>
-                          <div className="flex items-center gap-1 ml-1.5 shrink-0">
+                          <div className="flex items-center gap-0.5 ml-1.5 shrink-0">
                             <button
                               onClick={() => onToggleLockStudent(grp.id, st.id)}
                               className={`p-1 rounded cursor-pointer ${
@@ -1122,9 +1364,9 @@ export const ProjectorOverlay: React.FC<ProjectorOverlayProps> = ({
                               aria-label={isLocked ? `Unlock ${st.name}` : `Lock ${st.name}`}
                             >
                               {isLocked ? (
-                                <Lock className="w-3.5 h-3.5" />
+                                <Lock style={{ width: `${iconBtnPx}px`, height: `${iconBtnPx}px` }} />
                               ) : (
-                                <Unlock className="w-3.5 h-3.5" />
+                                <Unlock style={{ width: `${iconBtnPx}px`, height: `${iconBtnPx}px` }} />
                               )}
                             </button>
                             <button
@@ -1137,7 +1379,7 @@ export const ProjectorOverlay: React.FC<ProjectorOverlayProps> = ({
                               title="Move Group"
                               aria-label={`Move ${st.name}`}
                             >
-                              <ArrowLeftRight className="w-3.5 h-3.5" />
+                              <ArrowLeftRight style={{ width: `${iconBtnPx}px`, height: `${iconBtnPx}px` }} />
                             </button>
                             <button
                               onClick={() => void onRemoveAbsentFromGroups(st)}
@@ -1149,7 +1391,7 @@ export const ProjectorOverlay: React.FC<ProjectorOverlayProps> = ({
                               title={`Mark ${st.name} absent & remove from groups`}
                               aria-label={`Mark ${st.name} absent and remove from groups`}
                             >
-                              <UserX className="w-3.5 h-3.5" />
+                              <UserX style={{ width: `${iconBtnPx}px`, height: `${iconBtnPx}px` }} />
                             </button>
                           </div>
                         </div>

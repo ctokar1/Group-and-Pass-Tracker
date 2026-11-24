@@ -51,7 +51,7 @@ service cloud.firestore {
           'theme', 'defaultTab', 'defaultQuickSize', 'defaultQuickCount',
           'defaultForceExactCount', 'defaultTimerSeconds', 'timerSoundEnabled',
           'warnPassAlertMinutes', 'longPassAlertMinutes', 'overdueSoundEnabled',
-          'maxQuarterPasses', 'maxConcurrentPasses', 'autoRotateRoles', 'avoidRecentPairs',
+          'maxQuarterPasses', 'maxConcurrentPasses', 'autoRotateRoles', 'rolesOptInDefaulted', 'avoidRecentPairs',
           'deadZoneEnabled', 'deadZoneStartMinutes', 'deadZoneEndMinutes',
           'exemptDestinations', 'autoSwitchPeriod', 'autoSwitchLeadMinutes',
           'activeScheduleId', 'bellSchedules', 'timerStages'
@@ -71,6 +71,7 @@ service cloud.firestore {
         && settings.maxQuarterPasses is int && settings.maxQuarterPasses >= 1 && settings.maxQuarterPasses <= 10
         && settings.maxConcurrentPasses is int && settings.maxConcurrentPasses >= 0 && settings.maxConcurrentPasses <= 30
         && settings.autoRotateRoles is bool
+        && (!('rolesOptInDefaulted' in settings) || settings.rolesOptInDefaulted is bool)
         && settings.avoidRecentPairs is bool
         && settings.deadZoneEnabled is bool
         && settings.deadZoneStartMinutes is int && settings.deadZoneStartMinutes >= 0 && settings.deadZoneStartMinutes <= 30
@@ -108,7 +109,7 @@ service cloud.firestore {
           'lockedStudentIds', 'roles', 'points'
         ])
         && isValidId(grp.id)
-        && grp.colorIndex is int && grp.colorIndex >= 0 && grp.colorIndex <= 7
+        && (grp.colorIndex is int || grp.colorIndex is float) && grp.colorIndex >= 0 && grp.colorIndex <= 7
         && grp.name is string && grp.name.size() >= 1 && grp.name.size() <= 60
         && grp.studentIds is list && grp.studentIds.size() <= 100
         && (grp.studentIds.size() == 0 || isValidId(grp.studentIds[0]))
@@ -118,7 +119,7 @@ service cloud.firestore {
           && (grp.lockedStudentIds.size() == 0 || isValidId(grp.lockedStudentIds[0]))
         ))
         && (!('roles' in grp) || (grp.roles is map && grp.roles.size() <= 100))
-        && (!('points' in grp) || (grp.points is int && grp.points >= -999 && grp.points <= 999));
+        && (!('points' in grp) || ((grp.points is int || grp.points is float) && grp.points >= -999 && grp.points <= 999));
     }
 
     function isValidFloorPlan(fp) {
@@ -153,9 +154,9 @@ service cloud.firestore {
         && isValidId(data.id)
         && isValidId(data.workspaceId)
         && data.name is string && data.name.size() >= 1 && data.name.size() <= 120
-        && data.order is int && data.order >= 0 && data.order <= 10000
-        && data.quickSize is int && data.quickSize >= 0 && data.quickSize <= 12
-        && data.quickCount is int && data.quickCount >= 0 && data.quickCount <= 8
+        && (data.order is int || data.order is float) && data.order >= 0 && data.order <= 10000
+        && (data.quickSize is int || data.quickSize is float) && data.quickSize >= 0 && data.quickSize <= 12
+        && (data.quickCount is int || data.quickCount is float) && data.quickCount >= 0 && data.quickCount <= 8
         && data.forceExactCount is bool
         && data.groups is list && data.groups.size() <= 8
         && (data.groups.size() == 0 || isValidGroupEntry(data.groups[0]))
@@ -316,10 +317,10 @@ service cloud.firestore {
           && isSharedWorkspace(workspaceId)
           && isValidId(sectionId)
           && isValidSection(incoming(), workspaceId, sectionId)
-          && incoming().id == existing().id
-          && incoming().workspaceId == existing().workspaceId
-          && incoming().createdBy == existing().createdBy
-          && incoming().createdAt == existing().createdAt
+          && (!('id' in existing()) ? incoming().id == sectionId : incoming().id == existing().id)
+          && (!('workspaceId' in existing()) ? incoming().workspaceId == workspaceId : incoming().workspaceId == existing().workspaceId)
+          && (!('createdBy' in existing()) || !(existing().createdBy is string) || existing().createdBy.size() < 3 || existing().createdBy.size() > 256 ? incoming().createdBy == request.auth.token.email.lower() : incoming().createdBy == existing().createdBy)
+          && (!('createdAt' in existing()) || !(existing().createdAt is timestamp) ? incoming().createdAt == request.time : incoming().createdAt == existing().createdAt)
           && incoming().updatedAt == request.time
           && exists(/databases/$(database)/documents/workspaces/$(workspaceId))
           && (
@@ -342,7 +343,17 @@ service cloud.firestore {
               'groups', 'passQueue', 'floorPlan', 'keepApartPairs', 'pairTogetherPairs',
               'recentPairKeys', 'spotlightCalledIds', 'spotlightDeckMode',
               'updatedBy', 'updatedAt'
-            ])
+            ]) ||
+            (
+              (!('id' in existing()) || !('workspaceId' in existing()) || !('createdBy' in existing()) || !(existing().createdBy is string) || !('createdAt' in existing()) || !(existing().createdAt is timestamp) || !('forceExactCount' in existing()) || existing().keys().hasAny(['settings', 'students', 'roster', 'recentPairs', 'spotlightPool', 'theme', 'maxPasses']))
+              && incoming().diff(existing()).affectedKeys().hasOnly([
+                'id', 'workspaceId', 'name', 'order', 'quickSize', 'quickCount', 'forceExactCount',
+                'groups', 'passQueue', 'floorPlan', 'keepApartPairs', 'pairTogetherPairs',
+                'recentPairKeys', 'spotlightCalledIds', 'spotlightDeckMode',
+                'createdBy', 'createdAt', 'updatedBy', 'updatedAt',
+                'settings', 'students', 'roster', 'recentPairs', 'spotlightPool', 'theme', 'maxPasses'
+              ])
+            )
           );
 
         allow delete: if isAuthorizedTeacher()

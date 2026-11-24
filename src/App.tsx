@@ -46,6 +46,7 @@ import {
   type LegacyOrCloudBackupSection,
 } from './lib/classroomService';
 import {
+  clearGroupRoles,
   dropStudentIntoOpenSeat,
   generateColorGroups,
   rotateGroupRoles,
@@ -294,6 +295,23 @@ export default function App() {
     () => sanitizeWorkspaceSettings(workspace?.settings),
     [workspace?.settings]
   );
+
+  const migratedRolesDefaultRef = useRef(false);
+  useEffect(() => {
+    if (
+      !workspaceReady ||
+      !workspace?.settings ||
+      !teacherEmail ||
+      workspace.settings.rolesOptInDefaulted === true ||
+      migratedRolesDefaultRef.current
+    ) {
+      return;
+    }
+    migratedRolesDefaultRef.current = true;
+    void updateWorkspaceSettings(appSettings, teacherEmail).catch(() => {
+      // ignore background migration failure; sanitizer still defaults to false in UI
+    });
+  }, [workspaceReady, workspace?.settings, teacherEmail, appSettings]);
 
   const handleTimerFinishedToast = useCallback(
     (phaseTitle?: string) => {
@@ -729,6 +747,28 @@ export default function App() {
     });
   };
 
+  const handleClearRoles = () => {
+    if (!activeSection || !activeSection.groups || activeSection.groups.length === 0) return;
+    const nextGroups = clearGroupRoles(activeSection.groups);
+    void withSync(async () => {
+      await updateSectionGroups(activeSection.id, nextGroups, teacherEmail);
+      showToast('Removed classroom roles from all tables');
+    });
+  };
+
+  const handleRemoveStudentRole = (groupId: string, studentId: string) => {
+    if (!activeSection) return;
+    const nextGroups = activeSection.groups.map((g) => {
+      if (g.id !== groupId || !g.roles || !(studentId in g.roles)) return g;
+      const nextRoles = { ...g.roles };
+      delete nextRoles[studentId];
+      return { ...g, roles: nextRoles };
+    });
+    void withSync(async () => {
+      await updateSectionGroups(activeSection.id, nextGroups, teacherEmail);
+    });
+  };
+
   const handleToggleLockStudent = (groupId: string, studentId: string) => {
     if (!activeSection) return;
     const nextGroups = activeSection.groups.map((g) => {
@@ -903,7 +943,8 @@ export default function App() {
     const nextGroups = dropStudentIntoOpenSeat(
       studentId,
       activeSection.groups,
-      activeSection.keepApartPairs || []
+      activeSection.keepApartPairs || [],
+      appSettings.autoRotateRoles
     );
     await withSync(async () => {
       await toggleStudentAttendance(activeSection.id, studentId, true, teacherEmail, 'tardy');
@@ -1473,8 +1514,12 @@ export default function App() {
           <ColorGroupsTab
             section={activeSection}
             students={students}
+            autoRotateRoles={appSettings.autoRotateRoles}
+            onToggleAutoRotateRoles={handleToggleAutoRotateRoles}
             onGenerateGroups={handleGenerateGroups}
             onRotateRoles={handleRotateRoles}
+            onClearRoles={handleClearRoles}
+            onRemoveStudentRole={handleRemoveStudentRole}
             onToggleLockStudent={handleToggleLockStudent}
             onAdjustGroupPoints={handleAdjustGroupPoints}
             onResetAllGroupPoints={handleResetAllGroupPoints}
@@ -1595,6 +1640,8 @@ export default function App() {
         onOpenShortcuts={() => setShortcutsOpen(true)}
         onReshuffle={handleGenerateGroups}
         onRotateRoles={handleRotateRoles}
+        onClearRoles={handleClearRoles}
+        onRemoveStudentRole={handleRemoveStudentRole}
         onToggleLockStudent={handleToggleLockStudent}
         onAdjustGroupPoints={handleAdjustGroupPoints}
         onSaveFloorPlan={handleSaveFloorPlan}
@@ -1715,9 +1762,11 @@ export default function App() {
       <ProjectorRulesModal
         open={projectorRulesOpen}
         section={activeSection}
+        autoRotateRoles={appSettings.autoRotateRoles}
         onSelectQuickSize={handleSelectQuickSize}
         onSelectQuickCount={handleSelectQuickCount}
         onToggleForceCount={handleToggleForceCount}
+        onToggleAutoRotateRoles={handleToggleAutoRotateRoles}
         onReshuffleAndClose={() => {
           handleGenerateGroups();
           setProjectorRulesOpen(false);

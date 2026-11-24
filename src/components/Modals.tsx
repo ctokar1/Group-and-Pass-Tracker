@@ -119,9 +119,11 @@ export const SpotlightModal: React.FC<SpotlightModalProps> = ({
 interface ProjectorRulesModalProps {
   open: boolean;
   section: ClassSectionDoc | undefined;
+  autoRotateRoles?: boolean;
   onSelectQuickSize: (size: number) => void;
   onSelectQuickCount: (count: number) => void;
   onToggleForceCount: (forced: boolean) => void;
+  onToggleAutoRotateRoles?: (enabled: boolean) => void;
   onReshuffleAndClose: () => void;
   onClose: () => void;
 }
@@ -129,9 +131,11 @@ interface ProjectorRulesModalProps {
 export const ProjectorRulesModal: React.FC<ProjectorRulesModalProps> = ({
   open,
   section,
+  autoRotateRoles = false,
   onSelectQuickSize,
   onSelectQuickCount,
   onToggleForceCount,
+  onToggleAutoRotateRoles,
   onReshuffleAndClose,
   onClose,
 }) => {
@@ -215,6 +219,20 @@ export const ProjectorRulesModal: React.FC<ProjectorRulesModalProps> = ({
               Force Exact Group Count (Strictly cap tables to selected group count)
             </span>
           </label>
+
+          {onToggleAutoRotateRoles && (
+            <label className="flex items-center gap-3 bg-slate-950 p-3 rounded-xl border border-slate-800 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={autoRotateRoles}
+                onChange={(e) => onToggleAutoRotateRoles(e.target.checked)}
+                className="w-4 h-4 rounded border-slate-700 bg-slate-900 text-amber-400 focus:ring-amber-400 cursor-pointer"
+              />
+              <span className="text-xs font-extrabold text-slate-200">
+                Assign Classroom Roles on Shuffle (Facilitator, Recorder, Timekeeper…)
+              </span>
+            </label>
+          )}
         </div>
 
         <button

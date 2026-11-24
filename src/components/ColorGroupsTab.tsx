@@ -27,8 +27,12 @@ import { FloorPlanCanvas } from './FloorPlanCanvas';
 interface ColorGroupsTabProps {
   section: ClassSectionDoc | undefined;
   students: StudentDoc[];
+  autoRotateRoles: boolean;
+  onToggleAutoRotateRoles: (enabled: boolean) => void;
   onGenerateGroups: () => void;
   onRotateRoles: () => void;
+  onClearRoles: () => void;
+  onRemoveStudentRole: (groupId: string, studentId: string) => void;
   onToggleLockStudent: (groupId: string, studentId: string) => void;
   onAdjustGroupPoints: (groupId: string, delta: number) => void;
   onResetAllGroupPoints: () => void;
@@ -45,8 +49,12 @@ interface ColorGroupsTabProps {
 export const ColorGroupsTab: React.FC<ColorGroupsTabProps> = ({
   section,
   students,
+  autoRotateRoles,
+  onToggleAutoRotateRoles,
   onGenerateGroups,
   onRotateRoles,
+  onClearRoles,
+  onRemoveStudentRole,
   onToggleLockStudent,
   onAdjustGroupPoints,
   onResetAllGroupPoints,
@@ -65,6 +73,7 @@ export const ColorGroupsTab: React.FC<ColorGroupsTabProps> = ({
   const studentMap = new Map(students.map((s) => [s.id, s]));
   const groups: GroupEntry[] = section?.groups || [];
   const hasPoints = groups.some((g) => (g.points ?? 0) !== 0);
+  const hasRoles = groups.some((g) => g.roles && Object.keys(g.roles).length > 0);
 
   const handleDragStart = (
     e: React.DragEvent<HTMLDivElement>,
@@ -140,16 +149,43 @@ export const ColorGroupsTab: React.FC<ColorGroupsTabProps> = ({
             <Shuffle className="w-4 h-4" />
             Shuffle &amp; Group Now!
           </button>
+          <label
+            className={`px-3 py-2.5 rounded-xl border text-xs font-extrabold flex items-center gap-2 whitespace-nowrap shrink-0 cursor-pointer transition-colors ${
+              autoRotateRoles
+                ? 'bg-amber-400/15 border-amber-400/60 text-amber-300'
+                : 'bg-slate-950 border-slate-700 text-slate-400 hover:text-slate-200'
+            }`}
+            title="Only assign classroom roles when shuffling if this option is checked"
+          >
+            <input
+              type="checkbox"
+              checked={autoRotateRoles}
+              onChange={(e) => onToggleAutoRotateRoles(e.target.checked)}
+              className="w-3.5 h-3.5 rounded border-slate-700 bg-slate-900 text-amber-400 cursor-pointer"
+            />
+            Roles on Shuffle
+          </label>
           <button
             type="button"
             onClick={onRotateRoles}
             disabled={groups.length === 0}
             className="px-3.5 py-2.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-amber-300 font-extrabold text-xs rounded-xl border border-slate-700 flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
-            title="Rotate classroom roles without changing seats"
+            title="Assign or rotate classroom roles without changing seats"
           >
             <RefreshCw className="w-3.5 h-3.5" />
-            Rotate Roles
+            {hasRoles ? 'Rotate Roles' : 'Assign Roles'}
           </button>
+          {hasRoles && (
+            <button
+              type="button"
+              onClick={onClearRoles}
+              className="px-3 py-2.5 bg-slate-800 hover:bg-rose-950/70 text-slate-300 hover:text-rose-300 font-bold text-xs rounded-xl border border-slate-700 hover:border-rose-700/50 flex items-center gap-1 whitespace-nowrap shrink-0 cursor-pointer"
+              title="Remove classroom roles from all tables"
+            >
+              <X className="w-3.5 h-3.5" />
+              Remove Roles
+            </button>
+          )}
           {hasPoints && (
             <button
               type="button"
@@ -201,6 +237,7 @@ export const ColorGroupsTab: React.FC<ColorGroupsTabProps> = ({
           onRemoveStudentFromGroup={onRemoveStudentFromGroup}
           onOpenQuickMove={onOpenQuickMove}
           onToggleLockStudent={onToggleLockStudent}
+          onRemoveStudentRole={onRemoveStudentRole}
           onAdjustGroupPoints={onAdjustGroupPoints}
         />
       ) : (
@@ -317,8 +354,20 @@ export const ColorGroupsTab: React.FC<ColorGroupsTabProps> = ({
                                 </span>
                               </div>
                               {role && (
-                                <span className="text-[11px] font-semibold text-amber-300/90 block truncate mt-0.5">
-                                  {role}
+                                <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-300/90 mt-0.5 max-w-full">
+                                  <span className="truncate">{role}</span>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      onRemoveStudentRole(grp.id, st.id);
+                                    }}
+                                    className="no-print text-slate-500 hover:text-rose-400 cursor-pointer shrink-0"
+                                    title={`Remove ${role} role`}
+                                    aria-label={`Remove ${role} role from ${st.name}`}
+                                  >
+                                    <X className="w-2.5 h-2.5" />
+                                  </button>
                                 </span>
                               )}
                             </div>
