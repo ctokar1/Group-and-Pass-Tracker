@@ -42,7 +42,7 @@ service cloud.firestore {
           'theme', 'defaultTab', 'defaultQuickSize', 'defaultQuickCount',
           'defaultForceExactCount', 'defaultTimerSeconds', 'timerSoundEnabled',
           'warnPassAlertMinutes', 'longPassAlertMinutes', 'overdueSoundEnabled',
-          'maxQuarterPasses', 'autoRotateRoles', 'avoidRecentPairs',
+          'maxQuarterPasses', 'maxConcurrentPasses', 'autoRotateRoles', 'avoidRecentPairs',
           'deadZoneEnabled', 'deadZoneStartMinutes', 'deadZoneEndMinutes',
           'exemptDestinations', 'autoSwitchPeriod', 'autoSwitchLeadMinutes',
           'activeScheduleId', 'bellSchedules', 'timerStages'
@@ -51,7 +51,7 @@ service cloud.firestore {
           'theme', 'defaultTab', 'defaultQuickSize', 'defaultQuickCount',
           'defaultForceExactCount', 'defaultTimerSeconds', 'timerSoundEnabled',
           'warnPassAlertMinutes', 'longPassAlertMinutes', 'overdueSoundEnabled',
-          'maxQuarterPasses', 'autoRotateRoles', 'avoidRecentPairs',
+          'maxQuarterPasses', 'maxConcurrentPasses', 'autoRotateRoles', 'avoidRecentPairs',
           'deadZoneEnabled', 'deadZoneStartMinutes', 'deadZoneEndMinutes',
           'exemptDestinations', 'autoSwitchPeriod', 'autoSwitchLeadMinutes',
           'activeScheduleId', 'bellSchedules', 'timerStages'
@@ -69,6 +69,7 @@ service cloud.firestore {
         && settings.longPassAlertMinutes is int && settings.longPassAlertMinutes >= 1 && settings.longPassAlertMinutes <= 60
         && settings.overdueSoundEnabled is bool
         && settings.maxQuarterPasses is int && settings.maxQuarterPasses >= 1 && settings.maxQuarterPasses <= 10
+        && settings.maxConcurrentPasses is int && settings.maxConcurrentPasses >= 0 && settings.maxConcurrentPasses <= 30
         && settings.autoRotateRoles is bool
         && settings.avoidRecentPairs is bool
         && settings.deadZoneEnabled is bool

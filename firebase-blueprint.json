@@ -21,7 +21,7 @@
         },
         "settings": {
           "type": "object",
-          "description": "Shared classroom theme, pass thresholds, dead zone rules, bell schedules, and timer sequence defaults."
+          "description": "Shared classroom theme, pass thresholds, concurrent out-of-room limits, dead zone rules, bell schedules, and timer sequence defaults."
         },
         "createdBy": {
           "type": "string",

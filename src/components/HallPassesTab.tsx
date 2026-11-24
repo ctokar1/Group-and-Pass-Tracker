@@ -35,6 +35,7 @@ interface HallPassesTabProps {
   students: StudentDoc[];
   passLogs: PassLogDoc[];
   maxPasses?: number;
+  maxConcurrentPasses?: number;
   warnPassAlertMinutes?: number;
   longPassAlertMinutes?: number;
   exemptDestinations?: PassDestination[];
@@ -75,6 +76,7 @@ export const HallPassesTab: React.FC<HallPassesTabProps> = ({
   students,
   passLogs,
   maxPasses = MAX_QUARTER_PASSES,
+  maxConcurrentPasses = 1,
   warnPassAlertMinutes = 5,
   longPassAlertMinutes = 8,
   exemptDestinations = ['Nurse', 'Counselor'],
@@ -120,7 +122,14 @@ export const HallPassesTab: React.FC<HallPassesTabProps> = ({
     st.name.toLowerCase().includes(queryText)
   );
   const currentlyOut = sortedRoster.filter((st) => st.outTimestamp > 0);
-  const someoneOut = currentlyOut.length > 0;
+  const atOutLimit =
+    maxConcurrentPasses > 0 && currentlyOut.length >= maxConcurrentPasses;
+  const limitSummaryText =
+    maxConcurrentPasses === 0
+      ? 'Unlimited students out at a time'
+      : maxConcurrentPasses === 1
+      ? '1 student allowed out at a time'
+      : `Up to ${maxConcurrentPasses} students out at a time`;
 
   const queuedStudents = useMemo(
     () =>
@@ -169,7 +178,7 @@ export const HallPassesTab: React.FC<HallPassesTabProps> = ({
               <span>🚽</span> Quarter Hall Pass &amp; Queue Tracker
             </h2>
             <p className="text-xs text-slate-400 mt-0.5">
-              Only <strong className="text-amber-300">1 student</strong> allowed out at a time · {maxPasses} passes/quarter · Alerts at{' '}
+              <strong className="text-amber-300">{limitSummaryText}</strong> · {maxPasses} passes/quarter · Alerts at{' '}
               <span className="text-amber-300 font-bold">{warnPassAlertMinutes}m</span> &amp;{' '}
               <span className="text-rose-400 font-bold">{longPassAlertMinutes}m</span>.
             </p>
@@ -310,11 +319,20 @@ export const HallPassesTab: React.FC<HallPassesTabProps> = ({
                 <span className="relative inline-flex rounded-full h-3 w-3 bg-amber-500" />
               </span>
               <h3 className="font-black text-sm text-amber-300 tracking-wide">
-                Student Currently Out of Room (1 Out Limit Active)
+                {currentlyOut.length === 1
+                  ? 'Student Currently Out of Room'
+                  : `${currentlyOut.length} Students Currently Out of Room`}{' '}
+                ({maxConcurrentPasses === 0
+                  ? 'Unlimited Limit'
+                  : atOutLimit
+                  ? `${currentlyOut.length}/${maxConcurrentPasses} Limit Reached`
+                  : `${currentlyOut.length}/${maxConcurrentPasses} Slots Used`})
               </h3>
             </div>
             <span className="px-2.5 py-0.5 bg-amber-400 text-black font-black text-xs rounded-lg font-mono-tabular">
-              {currentlyOut.length} Out
+              {maxConcurrentPasses === 0
+                ? `${currentlyOut.length} Out`
+                : `${currentlyOut.length}/${maxConcurrentPasses} Out`}
             </span>
           </div>
 
@@ -393,9 +411,9 @@ export const HallPassesTab: React.FC<HallPassesTabProps> = ({
             <h3 className="font-extrabold text-sm text-white">
               Restroom Line — Who&apos;s Next ({queuedStudents.length})
             </h3>
-            {!someoneOut && queuedStudents[0] && (
+            {!atOutLimit && queuedStudents[0] && (
               <span className="text-xs font-bold text-emerald-400">
-                · Ready for {queuedStudents[0].name}
+                · Open slot ready for {queuedStudents[0].name}
               </span>
             )}
           </div>
@@ -467,7 +485,7 @@ export const HallPassesTab: React.FC<HallPassesTabProps> = ({
                   #{idx + 1}
                 </span>
                 <span className="font-bold text-white">{st.name}</span>
-                {!someoneOut && idx === 0 && !isDeadZoneLocked && (st.passesUsed < maxPasses || isSelectedExempt) && (
+                {!atOutLimit && idx === 0 && !isDeadZoneLocked && (st.passesUsed < maxPasses || isSelectedExempt) && (
                   <button
                     onClick={() => void onIssuePass(st, selectedDestination)}
                     className="px-2 py-0.5 bg-emerald-500 hover:bg-emerald-400 text-black font-black text-[11px] rounded-md cursor-pointer"
@@ -618,7 +636,7 @@ export const HallPassesTab: React.FC<HallPassesTabProps> = ({
                         {formatCountdownMMSS(deadZone?.unlockCountdownSeconds || 0)}
                       </span>
                     </button>
-                  ) : someoneOut ? (
+                  ) : atOutLimit ? (
                     isInLine ? (
                       <button
                         onClick={() => void onRemoveFromQueue(st.id)}
@@ -632,7 +650,7 @@ export const HallPassesTab: React.FC<HallPassesTabProps> = ({
                       <button
                         onClick={() => void onAddToQueue(st.id)}
                         className="flex-1 py-1.5 bg-slate-800 hover:bg-amber-400 hover:text-black text-amber-300 font-extrabold text-[11px] rounded-lg border border-amber-500/30 flex items-center justify-center gap-1 transition-colors cursor-pointer min-w-0"
-                        title="Only 1 student out at a time — add to restroom line"
+                        title={`Max ${maxConcurrentPasses} out at a time — add to restroom line`}
                       >
                         <ListOrdered className="w-3.5 h-3.5 shrink-0" />
                         <span className="truncate">Add to Line</span>

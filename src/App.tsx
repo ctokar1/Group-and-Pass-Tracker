@@ -95,6 +95,8 @@ import {
   EditPassLogModal,
 } from './components/PassHistoryModals';
 import { ShortcutsModal } from './components/ShortcutsModal';
+import { PopoutTimerDisplay } from './components/PopoutTimerDisplay';
+import { useClassroomTimer } from './hooks/useClassroomTimer';
 
 interface DocumentPictureInPictureApi {
   window: Window | null;
@@ -141,6 +143,9 @@ export default function App() {
   const [passBoardModalOpen, setPassBoardModalOpen] = useState(false);
   const [pipContainer, setPipContainer] = useState<HTMLElement | null>(null);
   const pipWindowRef = useRef<Window | null>(null);
+  const [timerPopoutOpen, setTimerPopoutOpen] = useState(false);
+  const [timerPipContainer, setTimerPipContainer] = useState<HTMLElement | null>(null);
+  const timerPipWindowRef = useRef<Window | null>(null);
   const [quickMoveTarget, setQuickMoveTarget] = useState<{
     studentId: string;
     currentGroupId: string;
@@ -290,6 +295,20 @@ export default function App() {
     [workspace?.settings]
   );
 
+  const handleTimerFinishedToast = useCallback(
+    (phaseTitle?: string) => {
+      showToast(phaseTitle ? `🔔 Phase Complete: ${phaseTitle}` : "🔔 Time's Up!");
+    },
+    [showToast]
+  );
+
+  const classroomTimer = useClassroomTimer({
+    defaultTimerSeconds: appSettings.defaultTimerSeconds,
+    timerSoundEnabled: appSettings.timerSoundEnabled,
+    timerStages: appSettings.timerStages,
+    onTimerFinished: handleTimerFinishedToast,
+  });
+
   const effectiveTheme: ThemeId =
     previewTheme ?? (workspaceReady ? appSettings.theme : cachedTheme);
 
@@ -305,6 +324,9 @@ export default function App() {
     }
     if (pipWindowRef.current && !pipWindowRef.current.closed) {
       pipWindowRef.current.document.documentElement.dataset.theme = effectiveTheme;
+    }
+    if (timerPipWindowRef.current && !timerPipWindowRef.current.closed) {
+      timerPipWindowRef.current.document.documentElement.dataset.theme = effectiveTheme;
     }
   }, [effectiveTheme, workspaceReady, previewTheme]);
 
@@ -411,8 +433,8 @@ export default function App() {
       await fn();
     } catch (err) {
       const errorObj = err instanceof Error ? err : new Error(String(err));
+      console.error('Firestore sync action failed:', errorObj);
       showToast(errorObj.message, 'error');
-      setFatalError(errorObj);
     } finally {
       setSyncing(false);
     }
@@ -423,10 +445,12 @@ export default function App() {
     openSpotlight: () => void;
     generateGroups: () => void;
     rotateRoles: () => void;
+    toggleTimer: () => void;
   }>({
     openSpotlight: () => {},
     generateGroups: () => {},
     rotateRoles: () => {},
+    toggleTimer: () => {},
   });
 
   // Global keyboard & presenter clicker shortcuts
@@ -444,7 +468,7 @@ export default function App() {
       passBoardModalOpen;
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.metaKey || e.ctrlKey || e.altKey || e.repeat) return;
       const target = e.target as HTMLElement | null;
       const tag = target?.tagName || '';
       if (
@@ -457,6 +481,22 @@ export default function App() {
       }
 
       if (anyBlockingModal) return;
+
+      if (timerPopoutOpen) {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          setTimerPopoutOpen(false);
+          return;
+        }
+        if (e.code === 'Space' || e.key === ' ' || e.key.toLowerCase() === 't') {
+          e.preventDefault();
+          if (document.activeElement instanceof HTMLButtonElement) {
+            document.activeElement.blur();
+          }
+          shortcutHandlersRef.current.toggleTimer();
+        }
+        return;
+      }
 
       if (shortcutsOpen) {
         if (e.key === '?' || e.key === 'Escape') {
@@ -474,6 +514,9 @@ export default function App() {
 
       if (e.code === 'Space' || e.key === ' ') {
         e.preventDefault();
+        if (document.activeElement instanceof HTMLButtonElement) {
+          document.activeElement.blur();
+        }
         shortcutHandlersRef.current.openSpotlight();
         return;
       }
@@ -514,6 +557,7 @@ export default function App() {
     quickMoveTarget,
     projectorRulesOpen,
     passBoardModalOpen,
+    timerPopoutOpen,
   ]);
 
   if (!authReady || !user || !isAuthorized) {
@@ -668,6 +712,7 @@ export default function App() {
         teacherEmail,
         nextRecentPairKeys
       );
+      setSpotlightWinner(null);
       showToast('Shuffled color groups!');
     });
   };
@@ -904,10 +949,13 @@ export default function App() {
   ) => {
     if (!activeSection) return;
     const maxPasses = appSettings.maxQuarterPasses;
-    const activeOut = students.find((s) => s.outTimestamp > 0);
-    if (activeOut) {
+    const maxConcurrent = appSettings.maxConcurrentPasses ?? 1;
+    const activeOutList = students.filter((s) => s.outTimestamp > 0);
+    if (maxConcurrent > 0 && activeOutList.length >= maxConcurrent) {
       showToast(
-        `Only 1 student out at a time! ${activeOut.name} is currently out — add ${student.name} to the line instead.`,
+        maxConcurrent === 1
+          ? `Only 1 student out at a time! ${activeOutList[0].name} is currently out — add ${student.name} to the line instead.`
+          : `Max ${maxConcurrent} students out at a time (${activeOutList.length}/${maxConcurrent} out) — add ${student.name} to the line instead.`,
         'error'
       );
       return;
@@ -1026,6 +1074,56 @@ export default function App() {
     openSpotlight: handleOpenSpotlight,
     generateGroups: handleGenerateGroups,
     rotateRoles: handleRotateRoles,
+    toggleTimer: classroomTimer.startPauseTimer,
+  };
+
+  const handleOpenPopoutTimer = () => {
+    if (timerPipWindowRef.current && !timerPipWindowRef.current.closed) {
+      timerPipWindowRef.current.focus();
+      return;
+    }
+    setTimerPopoutOpen(true);
+  };
+
+  const handleFloatTimerPip = async () => {
+    if (timerPipWindowRef.current && !timerPipWindowRef.current.closed) {
+      timerPipWindowRef.current.focus();
+      return;
+    }
+    const pipApi = (
+      window as unknown as { documentPictureInPicture?: DocumentPictureInPictureApi }
+    ).documentPictureInPicture;
+
+    if (pipApi && typeof pipApi.requestWindow === 'function') {
+      try {
+        const pipWin = await pipApi.requestWindow({ width: 580, height: 690 });
+        timerPipWindowRef.current = pipWin;
+        pipWin.document.title = 'Activity Timer — Tiger GroupCraft';
+        pipWin.document.documentElement.className = document.documentElement.className;
+        pipWin.document.documentElement.dataset.theme = effectiveTheme;
+        pipWin.document.body.className = 'bg-slate-950 text-slate-100 antialiased m-0 p-0';
+
+        document.querySelectorAll('style, link[rel="stylesheet"]').forEach((node) => {
+          pipWin.document.head.appendChild(node.cloneNode(true));
+        });
+
+        const mountNode = pipWin.document.createElement('div');
+        mountNode.className = 'h-screen overflow-hidden';
+        pipWin.document.body.appendChild(mountNode);
+        setTimerPipContainer(mountNode);
+        setTimerPopoutOpen(false);
+
+        pipWin.addEventListener('pagehide', () => {
+          setTimerPipContainer(null);
+          timerPipWindowRef.current = null;
+        });
+        return;
+      } catch {
+        // Fall through to helpful toast while keeping the large in-app modal open
+      }
+    }
+
+    showToast('Floating PiP window is unavailable in this browser — using full-screen timer.');
   };
 
   const handleOpenPassPopout = async () => {
@@ -1318,6 +1416,7 @@ export default function App() {
           students={students}
           standalone
           maxPasses={appSettings.maxQuarterPasses}
+          maxConcurrentPasses={appSettings.maxConcurrentPasses}
           warnPassAlertMinutes={appSettings.warnPassAlertMinutes}
           longPassAlertMinutes={appSettings.longPassAlertMinutes}
           exemptDestinations={appSettings.exemptDestinations}
@@ -1361,6 +1460,7 @@ export default function App() {
         onOpenAddSection={() => setAddSectionOpen(true)}
         onOpenProjector={() => setProjectorOpen(true)}
         onOpenSpotlight={handleOpenSpotlight}
+        onOpenPopoutTimer={handleOpenPopoutTimer}
         onOpenPassPopout={() => void handleOpenPassPopout()}
         onOpenSettings={() => setSettingsOpen(true)}
         onOpenShortcuts={() => setShortcutsOpen(true)}
@@ -1434,6 +1534,7 @@ export default function App() {
             students={students}
             passLogs={passLogs}
             maxPasses={appSettings.maxQuarterPasses}
+            maxConcurrentPasses={appSettings.maxConcurrentPasses}
             warnPassAlertMinutes={appSettings.warnPassAlertMinutes}
             longPassAlertMinutes={appSettings.longPassAlertMinutes}
             exemptDestinations={appSettings.exemptDestinations}
@@ -1477,9 +1578,9 @@ export default function App() {
         spotlightTrigger={spotlightTrigger}
         timerToggleTrigger={timerToggleTrigger}
         fistToFiveTrigger={fistToFiveTrigger}
-        defaultTimerSeconds={appSettings.defaultTimerSeconds}
         timerSoundEnabled={appSettings.timerSoundEnabled}
-        timerStages={appSettings.timerStages}
+        timer={classroomTimer}
+        onOpenPopoutTimer={handleOpenPopoutTimer}
         onSpotlightWinner={(winner) => {
           setSpotlightWinner(winner);
           if (winner) {
@@ -1503,10 +1604,53 @@ export default function App() {
         }
         onRemoveAbsentFromGroups={handleRemoveAbsentFromProjector}
         onRestorePresentStudent={handleRestorePresentStudent}
-        onTimerFinished={(phaseTitle) =>
-          showToast(phaseTitle ? `🔔 Phase Complete: ${phaseTitle}` : "🔔 Time's Up!")
-        }
       />
+
+      {/* Large Animated Pop-Out Timer Overlay */}
+      {timerPopoutOpen && (
+        <div
+          className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-2 sm:p-6"
+          onClick={() => setTimerPopoutOpen(false)}
+        >
+          <div
+            className="w-full max-w-4xl h-[92vh] max-h-[820px] rounded-3xl overflow-hidden border border-slate-800 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <PopoutTimerDisplay
+              timer={classroomTimer}
+              sectionName={activeSection?.name}
+              timerSoundEnabled={appSettings.timerSoundEnabled}
+              onFloatPip={() => void handleFloatTimerPip()}
+              onOpenSettings={() => {
+                setTimerPopoutOpen(false);
+                setSettingsOpen(true);
+              }}
+              onClose={() => setTimerPopoutOpen(false)}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Document PiP Floating Timer Portal */}
+      {timerPipContainer &&
+        createPortal(
+          <PopoutTimerDisplay
+            timer={classroomTimer}
+            sectionName={activeSection?.name}
+            timerSoundEnabled={appSettings.timerSoundEnabled}
+            standalone
+            onOpenSettings={() => {
+              setSettingsOpen(true);
+              window.focus();
+            }}
+            onClose={() => {
+              timerPipWindowRef.current?.close();
+              timerPipWindowRef.current = null;
+              setTimerPipContainer(null);
+            }}
+          />,
+          timerPipContainer
+        )}
 
       {/* Document PiP Floating Window Portal */}
       {pipContainer &&
@@ -1515,6 +1659,7 @@ export default function App() {
             section={activeSection}
             students={students}
             maxPasses={appSettings.maxQuarterPasses}
+            maxConcurrentPasses={appSettings.maxConcurrentPasses}
             warnPassAlertMinutes={appSettings.warnPassAlertMinutes}
             longPassAlertMinutes={appSettings.longPassAlertMinutes}
             exemptDestinations={appSettings.exemptDestinations}
@@ -1549,6 +1694,7 @@ export default function App() {
               section={activeSection}
               students={students}
               maxPasses={appSettings.maxQuarterPasses}
+              maxConcurrentPasses={appSettings.maxConcurrentPasses}
               warnPassAlertMinutes={appSettings.warnPassAlertMinutes}
               longPassAlertMinutes={appSettings.longPassAlertMinutes}
               exemptDestinations={appSettings.exemptDestinations}

@@ -13,6 +13,7 @@ import {
   Sliders,
   Timer,
   Trash2,
+  Users,
   Volume2,
   VolumeX,
   X,
@@ -578,6 +579,74 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
           {subTab === 'passes' && (
             <div className="space-y-5">
+              {/* Concurrent Out Limit */}
+              <div className="bg-slate-950/70 border border-slate-800 rounded-2xl p-4 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <h3 className="font-extrabold text-sm text-white flex items-center gap-2">
+                      <Users className="w-4 h-4 text-amber-400" />
+                      Max Students Out at a Time
+                    </h3>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      Control how many students can hold an active hall pass simultaneously (applies to Hall Passes &amp; Door Kiosk).
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  {[
+                    { value: 1, label: '1 Student' },
+                    { value: 2, label: '2 Students' },
+                    { value: 3, label: '3 Students' },
+                    { value: 4, label: '4 Students' },
+                    { value: 0, label: 'Unlimited' },
+                  ].map((opt) => {
+                    const active = draft.maxConcurrentPasses === opt.value;
+                    return (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() =>
+                          setDraft((p) => ({ ...p, maxConcurrentPasses: opt.value }))
+                        }
+                        className={`px-3 py-1.5 rounded-xl text-xs font-extrabold border cursor-pointer transition-colors ${
+                          active
+                            ? 'bg-amber-400 text-black border-amber-300'
+                            : 'bg-slate-900 hover:bg-slate-800 text-slate-200 border-slate-700'
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    );
+                  })}
+
+                  <div className="flex items-center gap-2 ml-1">
+                    <label
+                      htmlFor="setting-max-concurrent"
+                      className="text-xs font-bold text-slate-400"
+                    >
+                      Custom:
+                    </label>
+                    <input
+                      id="setting-max-concurrent"
+                      type="number"
+                      min={0}
+                      max={30}
+                      value={draft.maxConcurrentPasses}
+                      onChange={(e) => {
+                        const parsed = parseInt(e.target.value, 10);
+                        const val = Number.isNaN(parsed)
+                          ? 1
+                          : Math.max(0, Math.min(30, parsed));
+                        setDraft((p) => ({ ...p, maxConcurrentPasses: val }));
+                      }}
+                      className="w-20 bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-1.5 text-xs font-black text-amber-300 font-mono-tabular focus:outline-none focus:ring-2 focus:ring-amber-400"
+                    />
+                    <span className="text-[11px] text-slate-400">(0 = unlimited)</span>
+                  </div>
+                </div>
+              </div>
+
               {/* Two-stage overdue thresholds */}
               <div className="bg-slate-950/70 border border-slate-800 rounded-2xl p-4 space-y-4">
                 <h3 className="font-extrabold text-sm text-white flex items-center gap-2">

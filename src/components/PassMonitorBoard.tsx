@@ -33,6 +33,7 @@ interface PassMonitorBoardProps {
   students: StudentDoc[];
   standalone?: boolean;
   maxPasses?: number;
+  maxConcurrentPasses?: number;
   warnPassAlertMinutes?: number;
   longPassAlertMinutes?: number;
   exemptDestinations?: PassDestination[];
@@ -54,6 +55,7 @@ export const PassMonitorBoard: React.FC<PassMonitorBoardProps> = ({
   students,
   standalone = false,
   maxPasses = MAX_QUARTER_PASSES,
+  maxConcurrentPasses = 1,
   warnPassAlertMinutes = 5,
   longPassAlertMinutes = 8,
   exemptDestinations = ['Nurse', 'Counselor'],
@@ -105,7 +107,12 @@ export const PassMonitorBoard: React.FC<PassMonitorBoardProps> = ({
         .sort((a, b) => a.outTimestamp - b.outTimestamp),
     [students]
   );
-  const activeOutStudent = currentlyOut[0] || null;
+  const atOutLimit =
+    maxConcurrentPasses > 0 && currentlyOut.length >= maxConcurrentPasses;
+  const slotsOpen =
+    maxConcurrentPasses === 0
+      ? null
+      : Math.max(0, maxConcurrentPasses - currentlyOut.length);
 
   const rawQueue = section?.passQueue || [];
   const queuedStudents = useMemo(
@@ -182,7 +189,7 @@ export const PassMonitorBoard: React.FC<PassMonitorBoardProps> = ({
         showTempFeedback(`${st.name} has 0/${maxPasses} passes remaining.`);
         return;
       }
-      if (activeOutStudent) {
+      if (atOutLimit) {
         if (queuedIdSet.has(st.id)) {
           await onRemoveFromQueue(st.id);
           showTempFeedback(`Removed ${st.name} from line.`);
@@ -217,12 +224,6 @@ export const PassMonitorBoard: React.FC<PassMonitorBoardProps> = ({
     await handleKioskStudentAction(match);
   };
 
-  const outElapsedSeconds = activeOutStudent
-    ? Math.max(0, Math.floor((nowMs - activeOutStudent.outTimestamp) / 1000))
-    : 0;
-  const isCritical = outElapsedSeconds >= longPassAlertMinutes * 60;
-  const isWarning = !isCritical && outElapsedSeconds >= warnPassAlertMinutes * 60;
-
   const kioskFilteredStudents = useMemo(() => {
     const q = kioskSearch.trim().toLowerCase();
     if (!q) return sortedStudents;
@@ -250,7 +251,12 @@ export const PassMonitorBoard: React.FC<PassMonitorBoardProps> = ({
                 : 'Restroom Status & Next-Up Line'}
             </h2>
             <p className="text-xs text-amber-400 font-bold truncate">
-              {section?.name || 'Class Period'} · 1 student out at a time
+              {section?.name || 'Class Period'} ·{' '}
+              {maxConcurrentPasses === 0
+                ? 'Unlimited students out at a time'
+                : maxConcurrentPasses === 1
+                ? '1 student out at a time'
+                : `Up to ${maxConcurrentPasses} students out at a time`}
             </p>
           </div>
         </div>
@@ -343,83 +349,118 @@ export const PassMonitorBoard: React.FC<PassMonitorBoardProps> = ({
       )}
 
       {/* Live Restroom Availability Hero */}
-      {activeOutStudent ? (
-        <div
-          className={`rounded-2xl p-4 sm:p-5 border-2 flex flex-wrap items-center justify-between gap-4 shrink-0 ${
-            isCritical
-              ? 'bg-rose-950/50 border-rose-500 animate-pulse'
-              : isWarning
-              ? 'bg-amber-950/50 border-amber-400'
-              : 'bg-amber-950/35 border-amber-400'
-          }`}
-        >
-          <div className="space-y-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <span className="relative flex h-3 w-3 shrink-0">
-                <span
-                  className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
-                    isCritical ? 'bg-rose-400' : 'bg-amber-400'
-                  }`}
-                />
-                <span
-                  className={`relative inline-flex rounded-full h-3 w-3 ${
-                    isCritical ? 'bg-rose-500' : 'bg-amber-500'
-                  }`}
-                />
+      {currentlyOut.length > 0 && (
+        <div className="space-y-2 shrink-0">
+          <div className="flex items-center justify-between px-1">
+            <span className="text-xs font-black uppercase tracking-wider text-amber-300">
+              Currently Out ({maxConcurrentPasses === 0 ? `${currentlyOut.length}` : `${currentlyOut.length}/${maxConcurrentPasses}`})
+            </span>
+            {!atOutLimit && (
+              <span className="text-xs font-black text-emerald-400">
+                {slotsOpen === null
+                  ? 'More slots open'
+                  : `${slotsOpen} pass ${slotsOpen === 1 ? 'slot' : 'slots'} open`}
               </span>
-              <span
-                className={`text-xs font-black uppercase tracking-wider ${
-                  isCritical ? 'text-rose-300' : 'text-amber-300'
-                }`}
-              >
-                {isCritical
-                  ? `OVERDUE (${longPassAlertMinutes}m+) · Please Return`
-                  : isWarning
-                  ? `Check-In Soon (${warnPassAlertMinutes}m+) · Occupied`
-                  : 'Currently Out · Wait Your Turn'}
-              </span>
-            </div>
-            <div className="text-2xl sm:text-3xl font-black text-white truncate flex items-center gap-2.5">
-              <span>{activeOutStudent.name}</span>
-              <span className="text-xs font-black px-2 py-0.5 rounded-lg bg-slate-900 border border-slate-700 text-amber-300">
-                {activeOutStudent.activeDestination || 'Restroom'}
-              </span>
-            </div>
-            <div
-              className={`text-sm font-extrabold font-mono-tabular flex items-center gap-1.5 ${
-                isCritical ? 'text-rose-300' : 'text-amber-300'
-              }`}
-            >
-              {isCritical ? <AlertTriangle className="w-4 h-4" /> : <Clock className="w-4 h-4" />}
-              Out for {formatDurationExact(outElapsedSeconds)}
-            </div>
+            )}
           </div>
 
-          <button
-            onClick={() => void onReturnStudent(activeOutStudent)}
-            className="px-5 py-3 bg-emerald-500 hover:bg-emerald-400 text-black font-black text-sm sm:text-base rounded-xl flex items-center gap-2 cursor-pointer shrink-0 shadow-lg"
-          >
-            <CheckCircle2 className="w-5 h-5" />
-            I&apos;m Back — Return Pass
-          </button>
+          <div className="grid grid-cols-1 gap-2 max-h-48 overflow-y-auto pr-0.5">
+            {currentlyOut.map((st) => {
+              const elapsedSec = Math.max(0, Math.floor((nowMs - st.outTimestamp) / 1000));
+              const critical = elapsedSec >= longPassAlertMinutes * 60;
+              const warning = !critical && elapsedSec >= warnPassAlertMinutes * 60;
+              return (
+                <div
+                  key={st.id}
+                  className={`rounded-2xl p-3.5 border-2 flex flex-wrap items-center justify-between gap-3 ${
+                    critical
+                      ? 'bg-rose-950/50 border-rose-500 animate-pulse'
+                      : warning
+                      ? 'bg-amber-950/50 border-amber-400'
+                      : 'bg-amber-950/35 border-amber-400'
+                  }`}
+                >
+                  <div className="space-y-0.5 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="relative flex h-2.5 w-2.5 shrink-0">
+                        <span
+                          className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
+                            critical ? 'bg-rose-400' : 'bg-amber-400'
+                          }`}
+                        />
+                        <span
+                          className={`relative inline-flex rounded-full h-2.5 w-2.5 ${
+                            critical ? 'bg-rose-500' : 'bg-amber-500'
+                          }`}
+                        />
+                      </span>
+                      <span
+                        className={`text-[11px] font-black uppercase tracking-wider ${
+                          critical ? 'text-rose-300' : 'text-amber-300'
+                        }`}
+                      >
+                        {critical
+                          ? `OVERDUE (${longPassAlertMinutes}m+)`
+                          : warning
+                          ? `Check-In Soon (${warnPassAlertMinutes}m+)`
+                          : atOutLimit
+                          ? 'Out · Limit Reached'
+                          : 'Currently Out'}
+                      </span>
+                    </div>
+                    <div className="text-lg sm:text-xl font-black text-white truncate flex items-center gap-2">
+                      <span>{st.name}</span>
+                      <span className="text-[11px] font-black px-2 py-0.5 rounded-lg bg-slate-900 border border-slate-700 text-amber-300">
+                        {st.activeDestination || 'Restroom'}
+                      </span>
+                    </div>
+                    <div
+                      className={`text-xs font-extrabold font-mono-tabular flex items-center gap-1.5 ${
+                        critical ? 'text-rose-300' : 'text-amber-300'
+                      }`}
+                    >
+                      {critical ? <AlertTriangle className="w-3.5 h-3.5" /> : <Clock className="w-3.5 h-3.5" />}
+                      Out for {formatDurationExact(elapsedSec)}
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => void onReturnStudent(st)}
+                    className="px-4 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs sm:text-sm rounded-xl flex items-center gap-1.5 cursor-pointer shrink-0 shadow-lg"
+                  >
+                    <CheckCircle2 className="w-4 h-4" />
+                    I&apos;m Back
+                  </button>
+                </div>
+              );
+            })}
+          </div>
         </div>
-      ) : (
-        <div className="rounded-2xl p-4 sm:p-5 border-2 border-emerald-500/80 bg-emerald-950/30 flex flex-wrap items-center justify-between gap-4 shrink-0">
+      )}
+
+      {!atOutLimit && (
+        <div className="rounded-2xl p-4 border-2 border-emerald-500/80 bg-emerald-950/30 flex flex-wrap items-center justify-between gap-4 shrink-0">
           <div className="space-y-1 min-w-0">
             <span className="text-xs font-black uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
               <UserCheck className="w-4 h-4" />
-              Pass Available (0 Out)
+              {currentlyOut.length === 0
+                ? 'Pass Available (0 Out)'
+                : maxConcurrentPasses === 0
+                ? `Pass Available (${currentlyOut.length} Out · Unlimited)`
+                : `Pass Slot Open (${currentlyOut.length}/${maxConcurrentPasses} Out)`}
             </span>
-            <div className="text-xl sm:text-2xl font-black text-white">
+            <div className="text-lg sm:text-xl font-black text-white">
               {queuedStudents[0]
                 ? `Next Up: ${queuedStudents[0].name}`
-                : 'No one is currently out'}
+                : currentlyOut.length === 0
+                ? 'No one is currently out'
+                : 'Additional pass slot available'}
             </div>
             <p className="text-xs text-slate-300">
               {boardMode === 'kiosk'
                 ? 'Scan your ID badge or tap your name below to check out.'
                 : queuedStudents[0]
-                ? 'Ready for the next student in line to take the pass.'
+                ? 'Ready for the next student in line to take a pass.'
                 : 'Add your name below to join the line or issue a pass.'}
             </p>
           </div>
@@ -502,7 +543,7 @@ export const PassMonitorBoard: React.FC<PassMonitorBoardProps> = ({
                 const isOut = st.outTimestamp > 0;
                 const inQueue = queuedIdSet.has(st.id);
                 const isMax = left <= 0 && !isSelectedExempt;
-                const disabled = !isOut && (isDeadZoneLocked || (isMax && !activeOutStudent));
+                const disabled = !isOut && (isDeadZoneLocked || (isMax && !atOutLimit));
 
                 return (
                   <button
@@ -529,7 +570,7 @@ export const PassMonitorBoard: React.FC<PassMonitorBoardProps> = ({
                           ? 'Tap: Return'
                           : inQueue
                           ? 'In Line'
-                          : activeOutStudent
+                          : atOutLimit
                           ? 'Tap: Join Line'
                           : isDeadZoneLocked
                           ? 'Locked'
@@ -646,7 +687,7 @@ export const PassMonitorBoard: React.FC<PassMonitorBoardProps> = ({
                       </div>
 
                       <div className="flex items-center gap-1.5 shrink-0">
-                        {!activeOutStudent && isNext && !isMax && !isDeadZoneLocked && (
+                        {!atOutLimit && isNext && !isMax && !isDeadZoneLocked && (
                           <button
                             onClick={() => void onIssuePass(st, kioskDestination)}
                             className="px-2.5 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs rounded-lg cursor-pointer"

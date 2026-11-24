@@ -246,6 +246,9 @@ export function sanitizeWorkspaceSettings(raw?: Partial<AppSettings> | null): Ap
   const warnNum = Math.round(Number(s.warnPassAlertMinutes ?? DEFAULT_APP_SETTINGS.warnPassAlertMinutes));
   const alertNum = Math.round(Number(s.longPassAlertMinutes ?? DEFAULT_APP_SETTINGS.longPassAlertMinutes));
   const maxPassNum = Math.round(Number(s.maxQuarterPasses ?? DEFAULT_APP_SETTINGS.maxQuarterPasses));
+  const maxConcurrentNum = Math.round(
+    Number(s.maxConcurrentPasses ?? DEFAULT_APP_SETTINGS.maxConcurrentPasses)
+  );
   const dzStart = Math.round(Number(s.deadZoneStartMinutes ?? DEFAULT_APP_SETTINGS.deadZoneStartMinutes));
   const dzEnd = Math.round(Number(s.deadZoneEndMinutes ?? DEFAULT_APP_SETTINGS.deadZoneEndMinutes));
   const leadMin = Math.round(Number(s.autoSwitchLeadMinutes ?? DEFAULT_APP_SETTINGS.autoSwitchLeadMinutes));
@@ -273,6 +276,9 @@ export function sanitizeWorkspaceSettings(raw?: Partial<AppSettings> | null): Ap
     longPassAlertMinutes: Number.isFinite(alertNum) ? Math.max(1, Math.min(60, alertNum)) : DEFAULT_APP_SETTINGS.longPassAlertMinutes,
     overdueSoundEnabled: s.overdueSoundEnabled !== undefined ? Boolean(s.overdueSoundEnabled) : DEFAULT_APP_SETTINGS.overdueSoundEnabled,
     maxQuarterPasses: Number.isFinite(maxPassNum) ? Math.max(1, Math.min(LIMITS.MAX_PASSES, maxPassNum)) : DEFAULT_APP_SETTINGS.maxQuarterPasses,
+    maxConcurrentPasses: Number.isFinite(maxConcurrentNum)
+      ? Math.max(0, Math.min(30, maxConcurrentNum))
+      : DEFAULT_APP_SETTINGS.maxConcurrentPasses,
     autoRotateRoles: s.autoRotateRoles !== undefined ? Boolean(s.autoRotateRoles) : DEFAULT_APP_SETTINGS.autoRotateRoles,
     avoidRecentPairs: s.avoidRecentPairs !== undefined ? Boolean(s.avoidRecentPairs) : DEFAULT_APP_SETTINGS.avoidRecentPairs,
     deadZoneEnabled: Boolean(s.deadZoneEnabled ?? DEFAULT_APP_SETTINGS.deadZoneEnabled),

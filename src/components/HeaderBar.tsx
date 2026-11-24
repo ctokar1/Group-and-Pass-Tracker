@@ -8,6 +8,7 @@ import {
   Plus,
   Settings,
   Sparkles,
+  Timer,
 } from 'lucide-react';
 import type { ActiveTab, ClassSectionDoc } from '../types/classroom';
 
@@ -23,6 +24,7 @@ interface HeaderBarProps {
   onOpenAddSection: () => void;
   onOpenProjector: () => void;
   onOpenSpotlight: () => void;
+  onOpenPopoutTimer: () => void;
   onOpenPassPopout: () => void;
   onOpenSettings: () => void;
   onOpenShortcuts: () => void;
@@ -42,6 +44,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
   onOpenAddSection,
   onOpenProjector,
   onOpenSpotlight,
+  onOpenPopoutTimer,
   onOpenPassPopout,
   onOpenSettings,
   onOpenShortcuts,
@@ -142,6 +145,14 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
             >
               <Sparkles className="w-4 h-4" />
               Spotlight
+            </button>
+            <button
+              onClick={onOpenPopoutTimer}
+              className="px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-amber-300 font-bold text-xs sm:text-sm rounded-xl flex items-center gap-1.5 transition-all whitespace-nowrap shrink-0 cursor-pointer"
+              title="Open Large Animated Pop-Out Timer"
+            >
+              <Timer className="w-4 h-4" />
+              Timer
             </button>
             <button
               onClick={onOpenPassPopout}

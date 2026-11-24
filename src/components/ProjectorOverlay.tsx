@@ -9,6 +9,7 @@ import {
   LayoutGrid,
   Lock,
   Map as MapIcon,
+  Maximize2,
   Minus,
   Pause,
   Play,
@@ -28,15 +29,14 @@ import {
 } from 'lucide-react';
 import {
   COLOR_DEFINITIONS,
-  DEFAULT_TIMER_STAGES,
   type ClassSectionDoc,
   type FloorPlanLayout,
   type StudentDoc,
-  type TimerStageItem,
 } from '../types/classroom';
 import { formatRuleSummary } from '../lib/grouping';
 import { FloorPlanCanvas } from './FloorPlanCanvas';
 import { NoiseMeterWidget } from './NoiseMeterWidget';
+import type { ClassroomTimerControls } from '../hooks/useClassroomTimer';
 
 export interface SpotlightWinnerInfo {
   studentId?: string;
@@ -52,9 +52,9 @@ interface ProjectorOverlayProps {
   spotlightTrigger: number;
   timerToggleTrigger?: number;
   fistToFiveTrigger?: number;
-  defaultTimerSeconds?: number;
   timerSoundEnabled?: boolean;
-  timerStages?: TimerStageItem[];
+  timer: ClassroomTimerControls;
+  onOpenPopoutTimer: () => void;
   onSpotlightWinner: (winner: SpotlightWinnerInfo | null) => void;
   onUpdateSpotlightDeck: (patch: {
     spotlightCalledIds?: string[];
@@ -74,7 +74,6 @@ interface ProjectorOverlayProps {
   onOpenQuickMove: (studentId: string, groupId: string) => void;
   onRemoveAbsentFromGroups: (student: StudentDoc) => Promise<void>;
   onRestorePresentStudent: (student: StudentDoc) => Promise<void>;
-  onTimerFinished: (phaseTitle?: string) => void;
 }
 
 export function playProjectorChime() {
@@ -120,9 +119,9 @@ export const ProjectorOverlay: React.FC<ProjectorOverlayProps> = ({
   spotlightTrigger,
   timerToggleTrigger = 0,
   fistToFiveTrigger = 0,
-  defaultTimerSeconds = 300,
   timerSoundEnabled = true,
-  timerStages = DEFAULT_TIMER_STAGES,
+  timer,
+  onOpenPopoutTimer,
   onSpotlightWinner,
   onUpdateSpotlightDeck,
   onNotifyError,
@@ -139,115 +138,53 @@ export const ProjectorOverlay: React.FC<ProjectorOverlayProps> = ({
   onOpenQuickMove,
   onRemoveAbsentFromGroups,
   onRestorePresentStudent,
-  onTimerFinished,
 }) => {
   const [projectorLayout, setProjectorLayout] = useState<'grid' | 'floorplan'>('grid');
-  const [showTimer, setShowTimer] = useState(false);
-  const [timerMode, setTimerMode] = useState<'single' | 'chained'>('single');
-  const [stageIndex, setStageIndex] = useState(0);
   const [showNoiseMeter, setShowNoiseMeter] = useState(false);
   const [showAbsentPanel, setShowAbsentPanel] = useState(false);
 
   const [fistOpen, setFistOpen] = useState(false);
   const [fistSeconds, setFistSeconds] = useState(10);
 
-  const [secondsRemaining, setSecondsRemaining] = useState(defaultTimerSeconds);
-  const [customDurationSeconds, setCustomDurationSeconds] = useState(defaultTimerSeconds);
-  const [minInput, setMinInput] = useState(() => String(Math.floor(defaultTimerSeconds / 60)));
-  const [secInput, setSecInput] = useState(() =>
-    String(defaultTimerSeconds % 60).padStart(2, '0')
-  );
-  const [timerRunning, setTimerRunning] = useState(false);
-
   const [isSpotlighting, setIsSpotlighting] = useState(false);
   const [highlightedStudentId, setHighlightedStudentId] = useState<string | null>(null);
+  const isSpotlightingRef = useRef(false);
   const spotlightTimerRef = useRef<number | null>(null);
   const lastTriggerRef = useRef<number>(0);
   const lastTimerTriggerRef = useRef<number>(timerToggleTrigger);
   const lastFistTriggerRef = useRef<number>(fistToFiveTrigger);
 
-  const stages = timerStages.length > 0 ? timerStages : DEFAULT_TIMER_STAGES;
-  const activeStage = stages[Math.min(stageIndex, stages.length - 1)] || stages[0];
+  // Optimistic local Deck state so rapid Spotlight spins or toggles never read stale props
+  const [localDeckMode, setLocalDeckMode] = useState<boolean>(
+    () => section?.spotlightDeckMode !== false
+  );
+  const [localCalledIds, setLocalCalledIds] = useState<string[]>(
+    () => section?.spotlightCalledIds || []
+  );
+  const localDeckModeRef = useRef(localDeckMode);
+  const localCalledIdsRef = useRef(localCalledIds);
 
-  const isDeckMode = section?.spotlightDeckMode !== false; // default to Deck Mode ON
-  const calledIds = section?.spotlightCalledIds || [];
-  const calledIdSet = useMemo(() => new Set(calledIds), [calledIds]);
+  useEffect(() => {
+    const nextMode = section?.spotlightDeckMode !== false;
+    localDeckModeRef.current = nextMode;
+    setLocalDeckMode(nextMode);
+  }, [section?.id, section?.spotlightDeckMode]);
+
+  useEffect(() => {
+    const nextCalled = Array.isArray(section?.spotlightCalledIds)
+      ? section.spotlightCalledIds
+      : [];
+    localCalledIdsRef.current = nextCalled;
+    setLocalCalledIds(nextCalled);
+  }, [section?.id, section?.spotlightCalledIds]);
 
   const clearSpotlightTimeout = useCallback(() => {
     if (spotlightTimerRef.current !== null) {
       window.clearTimeout(spotlightTimerRef.current);
       spotlightTimerRef.current = null;
     }
+    isSpotlightingRef.current = false;
   }, []);
-
-  const syncInputsFromSeconds = useCallback((totalSecs: number) => {
-    const safe = Math.max(0, Math.floor(totalSecs));
-    setMinInput(String(Math.floor(safe / 60)));
-    setSecInput(String(safe % 60).padStart(2, '0'));
-  }, []);
-
-  const parseTypedTotalSeconds = useCallback((mRaw: string, sRaw: string): number => {
-    const m = Math.max(0, Math.min(999, parseInt(mRaw.replace(/\D/g, ''), 10) || 0));
-    const s = Math.max(0, Math.min(5999, parseInt(sRaw.replace(/\D/g, ''), 10) || 0));
-    return m * 60 + s;
-  }, []);
-
-  const applyTypedTimerValues = useCallback(
-    (mRaw: string, sRaw: string, updateCustomBase = true) => {
-      const total = parseTypedTotalSeconds(mRaw, sRaw);
-      setSecondsRemaining(total);
-      if (updateCustomBase && total > 0) {
-        setCustomDurationSeconds(total);
-      }
-      return total;
-    },
-    [parseTypedTotalSeconds]
-  );
-
-  useEffect(() => {
-    if (!timerRunning && timerMode === 'single') {
-      setCustomDurationSeconds(defaultTimerSeconds);
-      setSecondsRemaining(defaultTimerSeconds);
-      syncInputsFromSeconds(defaultTimerSeconds);
-    }
-  }, [defaultTimerSeconds, timerMode, syncInputsFromSeconds]);
-
-  // Countdown tick (supports both Single and Chained Sequence)
-  useEffect(() => {
-    if (!timerRunning) return;
-    const id = window.setInterval(() => {
-      setSecondsRemaining((prev) => {
-        if (prev <= 1) {
-          if (timerMode === 'chained' && stageIndex + 1 < stages.length) {
-            const nextIdx = stageIndex + 1;
-            const nextStage = stages[nextIdx];
-            setStageIndex(nextIdx);
-            syncInputsFromSeconds(nextStage.durationSeconds);
-            if (timerSoundEnabled) playProjectorChime();
-            onTimerFinished(nextStage.title);
-            return nextStage.durationSeconds;
-          }
-          setTimerRunning(false);
-          syncInputsFromSeconds(0);
-          if (timerSoundEnabled) playProjectorChime();
-          onTimerFinished();
-          return 0;
-        }
-        const next = prev - 1;
-        syncInputsFromSeconds(next);
-        return next;
-      });
-    }, 1000);
-    return () => window.clearInterval(id);
-  }, [
-    timerRunning,
-    timerMode,
-    stageIndex,
-    stages,
-    timerSoundEnabled,
-    onTimerFinished,
-    syncInputsFromSeconds,
-  ]);
 
   // Fist-to-Five 10s countdown
   useEffect(() => {
@@ -264,15 +201,18 @@ export const ProjectorOverlay: React.FC<ProjectorOverlayProps> = ({
     return () => window.clearInterval(id);
   }, [fistOpen, fistSeconds, timerSoundEnabled]);
 
-  // Assigned students in current groups
+  // Deduplicated assigned students in current groups
   const assignedStudents = useMemo(() => {
     const groups = section?.groups || [];
     const sMap = new Map(students.map((s) => [s.id, s]));
+    const seen = new Set<string>();
     const list: Array<{ studentId: string; studentName: string; groupName: string }> = [];
     groups.forEach((g) => {
       g.studentIds.forEach((sid) => {
+        if (seen.has(sid)) return;
         const st = sMap.get(sid);
         if (st) {
+          seen.add(sid);
           list.push({
             studentId: st.id,
             studentName: st.name,
@@ -284,34 +224,53 @@ export const ProjectorOverlay: React.FC<ProjectorOverlayProps> = ({
     return list;
   }, [section?.groups, students]);
 
+  const assignedIdSet = useMemo(
+    () => new Set(assignedStudents.map((a) => a.studentId)),
+    [assignedStudents]
+  );
+
+  const activeCalledIds = useMemo(
+    () => localCalledIds.filter((id) => assignedIdSet.has(id)),
+    [localCalledIds, assignedIdSet]
+  );
+
+  const activeCalledIdSet = useMemo(() => new Set(activeCalledIds), [activeCalledIds]);
+
   const remainingDeckPool = useMemo(
-    () => assignedStudents.filter((a) => !calledIdSet.has(a.studentId)),
-    [assignedStudents, calledIdSet]
+    () => assignedStudents.filter((a) => !activeCalledIdSet.has(a.studentId)),
+    [assignedStudents, activeCalledIdSet]
   );
 
   const runProjectedSpotlight = useCallback(() => {
+    if (isSpotlightingRef.current) return;
     clearSpotlightTimeout();
     if (assignedStudents.length === 0) {
       onNotifyError('Generate groups first before picking a student!');
       return;
     }
 
-    // Determine eligible winners based on Deck Mode vs Pure Random
+    const deckActive = localDeckModeRef.current;
+    const currentAssignedSet = new Set(assignedStudents.map((a) => a.studentId));
+    const currentCalled = localCalledIdsRef.current.filter((id) => currentAssignedSet.has(id));
+    const currentCalledSet = new Set(currentCalled);
+    const currentRemaining = assignedStudents.filter((a) => !currentCalledSet.has(a.studentId));
+
     let winnerPool = assignedStudents;
     let resetDeckFirst = false;
-    if (isDeckMode) {
-      if (remainingDeckPool.length > 0) {
-        winnerPool = remainingDeckPool;
+    if (deckActive) {
+      if (currentRemaining.length > 0) {
+        winnerPool = currentRemaining;
       } else {
-        // Deck exhausted: recycle full class automatically
         resetDeckFirst = true;
         winnerPool = assignedStudents;
       }
     }
 
     const chosenWinner = winnerPool[Math.floor(Math.random() * winnerPool.length)];
+    if (!chosenWinner) return;
 
     onSpotlightWinner(null);
+    isSpotlightingRef.current = true;
     setIsSpotlighting(true);
 
     const totalSteps = 20;
@@ -320,25 +279,30 @@ export const ProjectorOverlay: React.FC<ProjectorOverlayProps> = ({
 
     const tick = () => {
       step += 1;
-      let candidate: (typeof assignedStudents)[number];
-      if (step >= totalSteps) {
-        candidate = chosenWinner;
-      } else {
-        candidate = assignedStudents[Math.floor(Math.random() * assignedStudents.length)];
+      let candidate: (typeof assignedStudents)[number] = chosenWinner;
+      if (step < totalSteps) {
+        candidate = assignedStudents[Math.floor(Math.random() * assignedStudents.length)] || chosenWinner;
         if (assignedStudents.length > 1 && candidate.studentId === prevId) {
           const alternatives = assignedStudents.filter((a) => a.studentId !== prevId);
-          candidate = alternatives[Math.floor(Math.random() * alternatives.length)];
+          if (alternatives.length > 0) {
+            candidate = alternatives[Math.floor(Math.random() * alternatives.length)];
+          }
         }
       }
       prevId = candidate.studentId;
       setHighlightedStudentId(candidate.studentId);
 
       if (step >= totalSteps) {
+        isSpotlightingRef.current = false;
         setIsSpotlighting(false);
         spotlightTimerRef.current = null;
-        if (isDeckMode) {
-          const baseCalled = resetDeckFirst ? [] : calledIds;
+        if (localDeckModeRef.current) {
+          const baseCalled = resetDeckFirst
+            ? []
+            : localCalledIdsRef.current.filter((id) => currentAssignedSet.has(id));
           const nextCalled = Array.from(new Set([...baseCalled, candidate.studentId]));
+          localCalledIdsRef.current = nextCalled;
+          setLocalCalledIds(nextCalled);
           void onUpdateSpotlightDeck({ spotlightCalledIds: nextCalled });
         }
         onSpotlightWinner({
@@ -357,40 +321,10 @@ export const ProjectorOverlay: React.FC<ProjectorOverlayProps> = ({
     tick();
   }, [
     assignedStudents,
-    remainingDeckPool,
-    isDeckMode,
-    calledIds,
     clearSpotlightTimeout,
     onNotifyError,
     onSpotlightWinner,
     onUpdateSpotlightDeck,
-  ]);
-
-  const handleStartPauseTimer = useCallback(() => {
-    setShowTimer(true);
-    if (timerRunning) {
-      setTimerRunning(false);
-      syncInputsFromSeconds(secondsRemaining);
-    } else if (timerMode === 'chained') {
-      const dur = secondsRemaining > 0 ? secondsRemaining : activeStage.durationSeconds;
-      setSecondsRemaining(dur);
-      syncInputsFromSeconds(dur);
-      setTimerRunning(true);
-    } else {
-      const total = applyTypedTimerValues(minInput, secInput, true);
-      if (total <= 0) return;
-      syncInputsFromSeconds(total);
-      setTimerRunning(true);
-    }
-  }, [
-    timerRunning,
-    secondsRemaining,
-    timerMode,
-    activeStage,
-    minInput,
-    secInput,
-    syncInputsFromSeconds,
-    applyTypedTimerValues,
   ]);
 
   // Keyboard hotkey triggers passed from App.tsx
@@ -398,9 +332,9 @@ export const ProjectorOverlay: React.FC<ProjectorOverlayProps> = ({
     if (!open) return;
     if (timerToggleTrigger !== lastTimerTriggerRef.current) {
       lastTimerTriggerRef.current = timerToggleTrigger;
-      handleStartPauseTimer();
+      timer.startPauseTimer();
     }
-  }, [open, timerToggleTrigger, handleStartPauseTimer]);
+  }, [open, timerToggleTrigger, timer]);
 
   useEffect(() => {
     if (!open) return;
@@ -436,10 +370,6 @@ export const ProjectorOverlay: React.FC<ProjectorOverlayProps> = ({
   const absentStudents = students
     .filter((s) => !s.present)
     .sort((a, b) => a.name.localeCompare(b.name));
-
-  const mins = Math.floor(secondsRemaining / 60);
-  const secs = secondsRemaining % 60;
-  const formattedClock = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
 
   const activeHighlightId = isSpotlighting
     ? highlightedStudentId
@@ -551,7 +481,7 @@ export const ProjectorOverlay: React.FC<ProjectorOverlayProps> = ({
   const handleTimerKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
       e.preventDefault();
-      handleStartPauseTimer();
+      timer.startPauseTimer();
     }
   };
 
@@ -563,34 +493,28 @@ export const ProjectorOverlay: React.FC<ProjectorOverlayProps> = ({
   };
 
   const handleSkipReturnToDeck = () => {
-    if (spotlightWinner?.studentId && isDeckMode) {
-      const nextCalled = calledIds.filter((id) => id !== spotlightWinner.studentId);
+    if (spotlightWinner?.studentId && localDeckModeRef.current) {
+      const nextCalled = localCalledIdsRef.current.filter(
+        (id) => id !== spotlightWinner.studentId
+      );
+      localCalledIdsRef.current = nextCalled;
+      setLocalCalledIds(nextCalled);
       void onUpdateSpotlightDeck({ spotlightCalledIds: nextCalled });
     }
     handleCloseWinner();
   };
 
-  const handleSwitchTimerMode = (mode: 'single' | 'chained') => {
-    setTimerRunning(false);
-    setTimerMode(mode);
-    if (mode === 'chained') {
-      setStageIndex(0);
-      const first = stages[0];
-      setSecondsRemaining(first.durationSeconds);
-      syncInputsFromSeconds(first.durationSeconds);
-    } else {
-      setSecondsRemaining(defaultTimerSeconds);
-      syncInputsFromSeconds(defaultTimerSeconds);
-    }
+  const handleToggleDeckMode = () => {
+    const nextMode = !localDeckModeRef.current;
+    localDeckModeRef.current = nextMode;
+    setLocalDeckMode(nextMode);
+    void onUpdateSpotlightDeck({ spotlightDeckMode: nextMode });
   };
 
-  const handleStepStage = (delta: number) => {
-    const nextIdx = Math.max(0, Math.min(stages.length - 1, stageIndex + delta));
-    setTimerRunning(false);
-    setStageIndex(nextIdx);
-    const st = stages[nextIdx];
-    setSecondsRemaining(st.durationSeconds);
-    syncInputsFromSeconds(st.durationSeconds);
+  const handleResetDeck = () => {
+    localCalledIdsRef.current = [];
+    setLocalCalledIds([]);
+    void onUpdateSpotlightDeck({ spotlightCalledIds: [] });
   };
 
   return (
@@ -638,37 +562,37 @@ export const ProjectorOverlay: React.FC<ProjectorOverlayProps> = ({
         </div>
 
         {/* Classroom Timer / Sequence Widget */}
-        {showTimer && (
+        {timer.showInlineTimer && (
           <div className="flex flex-wrap items-center bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1.5 gap-2">
             {/* Single vs Sequence toggle */}
             <div className="flex items-center gap-0.5 p-0.5 bg-slate-900 border border-slate-800 rounded-lg text-[11px]">
               <button
                 type="button"
-                onClick={() => handleSwitchTimerMode('single')}
+                onClick={() => timer.switchTimerMode('single')}
                 className={`px-2 py-0.5 rounded font-bold cursor-pointer ${
-                  timerMode === 'single' ? 'bg-amber-400 text-black' : 'text-slate-400'
+                  timer.timerMode === 'single' ? 'bg-amber-400 text-black' : 'text-slate-400'
                 }`}
               >
                 Single
               </button>
               <button
                 type="button"
-                onClick={() => handleSwitchTimerMode('chained')}
+                onClick={() => timer.switchTimerMode('chained')}
                 className={`px-2 py-0.5 rounded font-bold cursor-pointer ${
-                  timerMode === 'chained' ? 'bg-amber-400 text-black' : 'text-slate-400'
+                  timer.timerMode === 'chained' ? 'bg-amber-400 text-black' : 'text-slate-400'
                 }`}
               >
                 Sequence
               </button>
             </div>
 
-            {timerRunning || timerMode === 'chained' ? (
+            {timer.timerRunning || timer.timerMode === 'chained' ? (
               <button
-                onClick={handleStartPauseTimer}
+                onClick={timer.startPauseTimer}
                 className="font-black text-2xl text-amber-400 font-mono-tabular tracking-wider hover:text-amber-300 cursor-pointer px-1"
                 title="Click to start/pause"
               >
-                {formattedClock}
+                {timer.formattedClock}
               </button>
             ) : (
               <div className="flex items-center gap-1" title="Type minutes and seconds">
@@ -676,17 +600,10 @@ export const ProjectorOverlay: React.FC<ProjectorOverlayProps> = ({
                   type="text"
                   inputMode="numeric"
                   aria-label="Timer minutes"
-                  value={minInput}
+                  value={timer.minInput}
                   maxLength={3}
-                  onChange={(e) => {
-                    const cleaned = e.target.value.replace(/\D/g, '').slice(0, 3);
-                    setMinInput(cleaned);
-                    applyTypedTimerValues(cleaned, secInput, true);
-                  }}
-                  onBlur={() => {
-                    const total = applyTypedTimerValues(minInput, secInput, true);
-                    syncInputsFromSeconds(total);
-                  }}
+                  onChange={(e) => timer.setMinInputValue(e.target.value)}
+                  onBlur={timer.blurTypedInputs}
                   onKeyDown={handleTimerKeyDown}
                   className="w-12 bg-slate-900 border border-slate-700 focus:border-amber-400 rounded-lg px-1 py-0.5 text-center font-black text-xl text-amber-400 font-mono-tabular focus:outline-none"
                 />
@@ -695,17 +612,10 @@ export const ProjectorOverlay: React.FC<ProjectorOverlayProps> = ({
                   type="text"
                   inputMode="numeric"
                   aria-label="Timer seconds"
-                  value={secInput}
+                  value={timer.secInput}
                   maxLength={2}
-                  onChange={(e) => {
-                    const cleaned = e.target.value.replace(/\D/g, '').slice(0, 2);
-                    setSecInput(cleaned);
-                    applyTypedTimerValues(minInput, cleaned, true);
-                  }}
-                  onBlur={() => {
-                    const total = applyTypedTimerValues(minInput, secInput, true);
-                    syncInputsFromSeconds(total);
-                  }}
+                  onChange={(e) => timer.setSecInputValue(e.target.value)}
+                  onBlur={timer.blurTypedInputs}
                   onKeyDown={handleTimerKeyDown}
                   className="w-11 bg-slate-900 border border-slate-700 focus:border-amber-400 rounded-lg px-1 py-0.5 text-center font-black text-xl text-amber-400 font-mono-tabular focus:outline-none"
                 />
@@ -714,53 +624,29 @@ export const ProjectorOverlay: React.FC<ProjectorOverlayProps> = ({
 
             <div className="flex items-center gap-1">
               <button
-                onClick={handleStartPauseTimer}
+                onClick={timer.startPauseTimer}
                 className="p-1.5 bg-slate-800 hover:bg-slate-700 text-amber-300 rounded-lg cursor-pointer"
-                title={timerRunning ? 'Pause Timer' : 'Start Timer'}
+                title={timer.timerRunning ? 'Pause Timer' : 'Start Timer'}
               >
-                {timerRunning ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+                {timer.timerRunning ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
               </button>
               <button
-                onClick={() => {
-                  setTimerRunning(false);
-                  const resetTo =
-                    timerMode === 'chained'
-                      ? activeStage.durationSeconds
-                      : customDurationSeconds > 0
-                      ? customDurationSeconds
-                      : defaultTimerSeconds;
-                  setSecondsRemaining(resetTo);
-                  syncInputsFromSeconds(resetTo);
-                }}
+                onClick={timer.resetTimer}
                 className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg cursor-pointer"
                 title="Reset Timer"
               >
                 <RotateCcw className="w-3.5 h-3.5" />
               </button>
-              {timerMode === 'single' && (
+              {timer.timerMode === 'single' && (
                 <>
                   <button
-                    onClick={() => {
-                      const next = secondsRemaining + 60;
-                      setSecondsRemaining(next);
-                      if (!timerRunning) {
-                        setCustomDurationSeconds(next);
-                        syncInputsFromSeconds(next);
-                      }
-                    }}
+                    onClick={() => timer.adjustSeconds(60)}
                     className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-amber-300 rounded-lg text-xs font-bold cursor-pointer"
                   >
                     +1m
                   </button>
                   <button
-                    onClick={() => {
-                      const next = secondsRemaining + 300;
-                      setSecondsRemaining(next);
-                      if (!timerRunning) {
-                        setCustomDurationSeconds(next);
-                        syncInputsFromSeconds(next);
-                      }
-                    }}
+                    onClick={() => timer.adjustSeconds(300)}
                     className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-amber-300 rounded-lg text-xs font-bold cursor-pointer"
                   >
                     +5m
@@ -768,7 +654,16 @@ export const ProjectorOverlay: React.FC<ProjectorOverlayProps> = ({
                 </>
               )}
               <button
-                onClick={() => setShowTimer(false)}
+                type="button"
+                onClick={onOpenPopoutTimer}
+                className="px-2 py-1 bg-amber-400 hover:bg-amber-300 text-black rounded-lg text-xs font-black flex items-center gap-1 cursor-pointer"
+                title="Pop out large animated timer"
+              >
+                <Maximize2 className="w-3 h-3" />
+                Pop Out
+              </button>
+              <button
+                onClick={() => timer.setShowInlineTimer(false)}
                 className="p-1 text-slate-500 hover:text-slate-300 ml-0.5 cursor-pointer"
                 title="Hide Timer"
               >
@@ -780,17 +675,28 @@ export const ProjectorOverlay: React.FC<ProjectorOverlayProps> = ({
 
         {/* Projector Toolbar */}
         <div className="flex flex-wrap items-center gap-1.5">
-          <button
-            onClick={() => setShowTimer((v) => !v)}
-            className={`px-3 py-2 font-extrabold text-xs rounded-xl border flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
-              showTimer
-                ? 'bg-amber-400 text-black border-amber-300'
-                : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
-            }`}
-          >
-            <Timer className="w-3.5 h-3.5" />
-            Timer
-          </button>
+          <div className="flex items-center bg-slate-950 border border-slate-700 rounded-xl overflow-hidden">
+            <button
+              onClick={() => timer.setShowInlineTimer((v) => !v)}
+              className={`px-3 py-2 font-extrabold text-xs flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
+                timer.showInlineTimer
+                  ? 'bg-amber-400 text-black'
+                  : 'bg-slate-800 hover:bg-slate-700 text-slate-200'
+              }`}
+            >
+              <Timer className="w-3.5 h-3.5" />
+              Timer
+            </button>
+            <button
+              type="button"
+              onClick={onOpenPopoutTimer}
+              className="px-2 py-2 bg-slate-900 hover:bg-slate-700 text-amber-300 border-l border-slate-700 flex items-center gap-1 text-[11px] font-black cursor-pointer"
+              title="Pop out large animated timer"
+            >
+              <Maximize2 className="w-3 h-3" />
+              Big
+            </button>
+          </div>
 
           {/* Spotlight + Deck Mode Toggle */}
           <div className="flex items-center bg-slate-950 border border-slate-700 rounded-xl overflow-hidden">
@@ -808,25 +714,25 @@ export const ProjectorOverlay: React.FC<ProjectorOverlayProps> = ({
             </button>
             <button
               type="button"
-              onClick={() => void onUpdateSpotlightDeck({ spotlightDeckMode: !isDeckMode })}
+              onClick={handleToggleDeckMode}
               className={`px-2 py-2 text-[11px] font-black border-l border-slate-700 flex items-center gap-1 cursor-pointer ${
-                isDeckMode
+                localDeckMode
                   ? 'bg-emerald-950/60 text-emerald-300 hover:bg-emerald-900/70'
                   : 'bg-slate-900 text-slate-400 hover:text-white'
               }`}
               title={
-                isDeckMode
+                localDeckMode
                   ? `Non-Repeating Deck (${remainingDeckPool.length}/${assignedStudents.length} left) — click for Pure Random`
                   : 'Pure Random Mode — click to switch to Non-Repeating Deck'
               }
             >
               <Layers className="w-3 h-3" />
-              {isDeckMode ? `Deck ${remainingDeckPool.length}/${assignedStudents.length}` : 'Random'}
+              {localDeckMode ? `Deck ${remainingDeckPool.length}/${assignedStudents.length}` : 'Random'}
             </button>
-            {isDeckMode && calledIds.length > 0 && (
+            {localDeckMode && activeCalledIds.length > 0 && (
               <button
                 type="button"
-                onClick={() => void onUpdateSpotlightDeck({ spotlightCalledIds: [] })}
+                onClick={handleResetDeck}
                 className="px-2 py-2 text-[11px] font-bold text-slate-400 hover:text-amber-300 border-l border-slate-700 cursor-pointer"
                 title="Reset Spotlight deck"
               >
@@ -930,19 +836,19 @@ export const ProjectorOverlay: React.FC<ProjectorOverlayProps> = ({
       </div>
 
       {/* Chained Timer Phase Banner */}
-      {showTimer && timerMode === 'chained' && (
+      {timer.showInlineTimer && timer.timerMode === 'chained' && (
         <div className="no-print bg-slate-900 border-2 border-amber-400/70 rounded-2xl px-4 py-2.5 mb-2 flex flex-wrap items-center justify-between gap-3 shrink-0">
           <div className="flex items-center gap-3 min-w-0">
             <span className="px-2.5 py-1 rounded-lg bg-amber-400 text-black font-black text-xs font-mono-tabular shrink-0">
-              Phase {stageIndex + 1}/{stages.length}
+              Phase {timer.stageIndex + 1}/{timer.stages.length}
             </span>
             <div className="min-w-0">
               <span className="font-black text-sm sm:text-base text-white block truncate">
-                {activeStage.title}
+                {timer.activeStage.title}
               </span>
-              {activeStage.instructions && (
+              {timer.activeStage.instructions && (
                 <span className="text-xs text-slate-300 block truncate">
-                  {activeStage.instructions}
+                  {timer.activeStage.instructions}
                 </span>
               )}
             </div>
@@ -951,8 +857,8 @@ export const ProjectorOverlay: React.FC<ProjectorOverlayProps> = ({
           <div className="flex items-center gap-1.5 shrink-0">
             <button
               type="button"
-              onClick={() => handleStepStage(-1)}
-              disabled={stageIndex === 0}
+              onClick={() => timer.stepStage(-1)}
+              disabled={timer.stageIndex === 0}
               className="p-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-200 rounded-lg cursor-pointer"
               title="Previous phase"
             >
@@ -960,8 +866,8 @@ export const ProjectorOverlay: React.FC<ProjectorOverlayProps> = ({
             </button>
             <button
               type="button"
-              onClick={() => handleStepStage(1)}
-              disabled={stageIndex >= stages.length - 1}
+              onClick={() => timer.stepStage(1)}
+              disabled={timer.stageIndex >= timer.stages.length - 1}
               className="p-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-200 rounded-lg cursor-pointer"
               title="Next phase"
             >
@@ -1014,15 +920,23 @@ export const ProjectorOverlay: React.FC<ProjectorOverlayProps> = ({
         </div>
       )}
 
-      {/* Spotlight Winner Banner with Skip/Return to Deck & Close Options */}
+      {/* Spotlight Winner Banner with Draw Next, Skip/Return to Deck & Close Options */}
       {!isSpotlighting && spotlightWinner && (
         <div className="bg-gradient-to-r from-amber-500 via-amber-400 to-yellow-300 text-black font-black text-lg sm:text-2xl py-2 px-4 rounded-xl mb-2 flex flex-wrap items-center justify-between gap-3 shrink-0 shadow-lg">
-          <span className="hidden sm:inline-block w-36 shrink-0" aria-hidden="true" />
+          <span className="hidden lg:inline-block w-44 shrink-0" aria-hidden="true" />
           <span className="text-center truncate flex-1">
             🏆 Spotlight Winner: {spotlightWinner.studentName} ({spotlightWinner.groupName})
           </span>
           <div className="flex items-center gap-2 shrink-0">
-            {isDeckMode && (
+            <button
+              onClick={runProjectedSpotlight}
+              className="px-2.5 py-1 bg-black text-amber-300 hover:bg-slate-900 rounded-lg text-xs font-black flex items-center gap-1 cursor-pointer"
+              title="Draw the next student immediately"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              Draw Next
+            </button>
+            {localDeckMode && (
               <button
                 onClick={handleSkipReturnToDeck}
                 className="px-2.5 py-1 bg-black/15 hover:bg-black/25 text-black rounded-lg text-xs font-black flex items-center gap-1 cursor-pointer"
